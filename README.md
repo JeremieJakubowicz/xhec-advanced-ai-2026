@@ -4,11 +4,11 @@ Public material for the course. Everything runs on the free tier of Google Colab
 
 ## Sessions
 
-| #   | folder      | topic                                                       | GPU |
-| --- | ----------- | ----------------------------------------------------------- | --- |
-| 1   | `Session1/` | Shannon, Markov models, the memorization trap, tokenization | no  |
+| #   | session                  | topic                                                       | GPU | open in Colab                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| --- | ------------------------ | ----------------------------------------------------------- | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | [Session 1](Session1/)   | Shannon, Markov models, the memorization trap, tokenization | no  | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/JeremieJakubowicz/xhec-advanced-ai-2026/blob/main/Session1/Session1a-Shannon-Markov.ipynb) part A · [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/JeremieJakubowicz/xhec-advanced-ai-2026/blob/main/Session1/Session1b-Tokenization.ipynb) part B |
 
-Each session folder has its own README explaining how to run the notebooks, on Colab or locally.
+Each session folder has its own README explaining how to run the notebooks, on Colab or locally, and what to do if something goes wrong.
 
 ## Data
 
