@@ -1,0 +1,4 @@
+# local copies of the corpus downloaded by the notebooks (the reference copy lives in data/)
+Session*/hugotexts.txt
+.ipynb_checkpoints/
+__pycache__/
