@@ -1,4 +1,6 @@
-# local copies of the corpus downloaded by the notebooks (the reference copy lives in data/)
+# local copies downloaded by the notebooks (the reference copies live in data/ and in checkpoints/)
 Session*/hugotexts.txt
+Session*/hugo_bpe_8k.json
+Session*/*.pt
 .ipynb_checkpoints/
 __pycache__/
