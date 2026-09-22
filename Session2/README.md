@@ -7,7 +7,7 @@ Two notebooks. They train small language models live, so a GPU runtime is recomm
 | `Session2a-From-Table-To-Network.ipynb` | Self-supervision, one measurement for every language model (surprise, perplexity, bits per character), the smoothed table on the scoreboard, a convolutional network trained live and compared to it, embeddings, how far back the model looks | about 6 minutes            | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/JeremieJakubowicz/xhec-advanced-ai-2026/blob/main/Session2/Session2a-From-Table-To-Network.ipynb) |
 | `Session2b-Going-Non-Local.ipynb`       | Recurrent networks: the simple RNN and why it loses, vanishing gradients measured, the LSTM and why it wins, the limits that lead to attention                                                                                                 | about 8 minutes            | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/JeremieJakubowicz/xhec-advanced-ai-2026/blob/main/Session2/Session2b-Going-Non-Local.ipynb)       |
 
-Do part A before part B: part B reloads everything part A built and starts where it ends. Both notebooks use the corpus and the tokenizer of session 1.
+Do part A before part B: part B reloads everything part A built and starts where it ends. Both notebooks use the corpus of session 1 and a tokenizer built with the same recipe as in session 1, retrained on the training split only.
 
 ## Run on Google Colab (recommended)
 

@@ -13,7 +13,7 @@ Each session folder has its own README explaining how to run the notebooks, on C
 
 ## Data
 
-`data/` holds the datasets the notebooks download by themselves: `hugotexts.txt`, works of Victor Hugo (14 MB, public domain, accents partly stripped by the digitisation), and `hugo_bpe_8k.json`, the 8,000-token tokenizer trained on it in session 1. Pre-trained model checkpoints live in each session's `checkpoints/` folder.
+`data/` holds the datasets the notebooks download by themselves: `hugotexts.txt`, works of Victor Hugo (14 MB, public domain, accents partly stripped by the digitisation), and `hugo_bpe_8k.json`, an 8,000-token tokenizer built with the recipe of session 1 on the training split of the corpus. Pre-trained model checkpoints live in each session's `checkpoints/` folder.
 
 ## Instructors
 
