@@ -11,6 +11,10 @@ Public material for the course. Everything runs on the free tier of Google Colab
 
 Each session folder has its own README explaining how to run the notebooks, on Colab or locally, and what to do if something goes wrong.
 
+## Companion site
+
+[**Two language models, live**](https://jeremiejakubowicz.github.io/xhec-advanced-ai-2026/): the convolutional network and the LSTM of session 2 running in your browser on the text you type, with their next-token distributions, the CNN's receptive field, the LSTM's forget gates and a context slider. Nothing to install, nothing leaves your machine.
+
 ## Data
 
 `data/` holds the datasets the notebooks download by themselves: `hugotexts.txt`, works of Victor Hugo (14 MB, public domain, accents partly stripped by the digitisation), and `hugo_bpe_8k.json`, an 8,000-token tokenizer built with the recipe of session 1 on the training split of the corpus. Pre-trained model checkpoints live in each session's `checkpoints/` folder.

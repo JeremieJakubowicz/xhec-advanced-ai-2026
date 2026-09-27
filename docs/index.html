@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Two language models, live</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%276%27 fill=%27%23d95f02%27/%3E%3Crect x=%277%27 y=%2716%27 width=%275%27 height=%279%27 fill=%27%23fff%27/%3E%3Crect x=%2714%27 y=%2710%27 width=%275%27 height=%2715%27 fill=%27%23fff%27/%3E%3Crect x=%2721%27 y=%276%27 width=%275%27 height=%2719%27 fill=%27%23fff%27/%3E%3C/svg%3E">
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+</head>
+<body>
+<header>
+  <p class="course">Advanced AI: Language Models &amp; Agents · X-HEC · session 2 companion</p>
+  <h1>Two language models, live</h1>
+  <p class="lead">The convolutional network and the LSTM of session 2, trained on Victor Hugo, running in your browser. Type a sentence, click a token, and watch what each model does with it. Nothing leaves your machine.</p>
+</header>
+
+<section id="input">
+  <label for="text">Text</label>
+  <textarea id="text" rows="3" spellcheck="false">Le peuple de Paris est le peuple de la liberte. Il a fait la revolution, et il</textarea>
+  <div class="hint"><span id="status">loading…</span><span id="timing"></span></div>
+  <div class="strip-block">
+    <div class="strip-label">tokens <span class="muted">(click one: the models predict what comes after it)</span></div>
+    <div id="tokens" class="strip"></div>
+  </div>
+  <div class="strip-block">
+    <div class="strip-label">surprise of each token, CNN <span class="muted">(bits: how unexpected the token was, given the ones before)</span></div>
+    <div id="surprise-cnn" class="strip"></div>
+    <div class="strip-label">surprise of each token, LSTM</div>
+    <div id="surprise-lstm" class="strip"></div>
+    <div class="legend"><span class="sw" style="background:#f7fbff"></span> expected &nbsp; <span class="sw" style="background:#6baed6"></span> &nbsp; <span class="sw" style="background:#08306b"></span> very surprising (&ge; 12 bits)</div>
+  </div>
+</section>
+
+<section id="models" class="two-columns">
+  <div class="panel">
+    <h2>Local CNN <span class="muted">3.6 M parameters, sees <span id="rf">9</span> tokens</span></h2>
+    <h3>Next-token distribution <span class="muted" id="cnn-actual"></span></h3>
+    <svg id="cnn-bars" class="bars"></svg>
+    <h3>What the prediction can see</h3>
+    <p class="explain">Four causal convolutions of kernel 3: the prediction after the selected token depends on that token and the eight before it, and on nothing else. Highlighted: its receptive field.</p>
+    <div id="cnn-rf" class="strip"></div>
+    <h3>How much each layer writes</h3>
+    <p class="explain">Each layer adds <em>u ⊙ σ(g)</em> to its input. The map shows the average gate σ(g) at every position: dark means the layer is writing a lot there.</p>
+    <canvas id="cnn-gates" class="heatmap"></canvas>
+    <div class="axis-note" id="cnn-gates-note"></div>
+  </div>
+
+  <div class="panel">
+    <h2>LSTM <span class="muted">5.9 M parameters, two layers of 512 units</span></h2>
+    <h3>Next-token distribution <span class="muted" id="lstm-actual"></span></h3>
+    <svg id="lstm-bars" class="bars"></svg>
+    <h3>The forget gates</h3>
+    <p class="explain">One row per memory slot, one column per token: how much of the slot is kept at that step (dark: kept, light: erased). A slot that stays dark across many tokens is carrying something over a long distance.</p>
+    <div class="heatmap-label">layer 1</div>
+    <canvas id="lstm-forget-0" class="heatmap tall"></canvas>
+    <div class="heatmap-label">layer 2</div>
+    <canvas id="lstm-forget-1" class="heatmap tall"></canvas>
+    <div class="axis-note" id="lstm-forget-note"></div>
+  </div>
+</section>
+
+<section id="context">
+  <h2>How far back does each model look?</h2>
+  <p class="explain">Same prediction, after the selected token, but the models are only shown the last <em>k</em> tokens. The curve gives the probability they assign to the token that actually follows (or to their favourite token, if the selected one is the last). The CNN cannot change beyond its window; the LSTM keeps improving as long as the extra context helps.</p>
+  <p class="explain" id="context-note"></p>
+  <svg id="curve"></svg>
+  <div class="slider-row">
+    <label for="k">context k = <b id="k-value"></b> tokens</label>
+    <input type="range" id="k" min="0" max="0" value="0" step="1">
+  </div>
+  <div class="two-columns small">
+    <div><div class="strip-label">CNN, top 5 with k tokens</div><ol id="k-cnn" class="toplist"></ol></div>
+    <div><div class="strip-label">LSTM, top 5 with k tokens</div><ol id="k-lstm" class="toplist"></ol></div>
+  </div>
+</section>
+
+<footer>
+  <p>Models, tokenizer and code from the course repository <a href="https://github.com/JeremieJakubowicz/xhec-advanced-ai-2026">xhec-advanced-ai-2026</a>. Both networks were trained for fifteen minutes on the Hugo corpus with the notebooks of session 2; the site reimplements their forward pass in plain JavaScript.</p>
+</footer>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
