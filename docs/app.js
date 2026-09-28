@@ -22,10 +22,17 @@ worker.onmessage = e => {
   if (m.type === "status") { $("status").textContent = m.text; return; }
   if (m.type === "error") { $("status").textContent = "error: " + m.text; return; }
   if (m.type === "ready") { ready = true; receptiveField = m.receptiveField; $("rf").textContent = m.receptiveField; request(); return; }
-  last = m; position = m.position;
-  $("status").textContent = m.T ? `${m.T} tokens${m.truncated ? " (text cut at 64 tokens)" : ""}, prediction after token ${m.position + 1}` : "type something";
-  $("timing").textContent = m.T ? `${m.ms} ms` : "";
-  render(m);
+  if (m.type === "result") {
+    last = m; position = m.position;
+    $("status").textContent = m.T ? `${m.T} tokens${m.truncated ? " (text cut at 64 tokens)" : ""}, prediction after token ${m.position + 1}` : "type something";
+    const t0 = performance.now(); render(m);
+    $("timing").textContent = m.T ? `compute ${m.ms} ms, draw ${Math.round(performance.now() - t0)} ms` : "";
+    return;
+  }
+  if (!last || m.id !== last.id) return;                                       // a late answer to an older request
+  if (m.type === "lens") { last.flow.cnn.lens = m.lens; if (players.cnn) players.cnn.refresh(); }
+  if (m.type === "influence") { last.influence = m.influence; renderInfluence("cnn-influence", m.influence.cnn, last.tokens); renderInfluence("lstm-influence", m.influence.lstm, last.tokens); }
+  if (m.type === "curve") { last.cnn.curve = m.curves.cnn; last.lstm.curve = m.curves.lstm; renderCurve(last); $("timing").textContent += `, ablations and context curves ${m.ms} ms more`; }
 };
 
 // ---------------------------------------------------------------- token strips
@@ -177,7 +184,7 @@ function stripRow(container, name, sub, vec, { gate = false, tall = false } = {}
 }
 function lensRow(container, top, label = "if it stopped here:") {           // "logit lens": what the network would predict from this vector
   const el = document.createElement("div"); el.className = "lens";
-  el.innerHTML = label + " " + top.map(r => `<b>${show(r.text).replace(/</g, "&lt;")}</b> ${(100 * r.prob).toFixed(0)} %`).join(" · ");
+  el.innerHTML = label + " " + (top ? top.map(r => `<b>${show(r.text).replace(/</g, "&lt;")}</b> ${(100 * r.prob).toFixed(0)} %`).join(" · ") : "<i>computing…</i>");
   container.appendChild(el);
 }
 function opRow(container, text) { const el = document.createElement("div"); el.className = "vop"; el.innerHTML = text; container.appendChild(el); }
@@ -269,7 +276,7 @@ function player(barId, nSteps, onStep, describe, interval) {
   btn("⏭", "last step", () => { stop(); set(nSteps - 1); });
   bar.appendChild(status);
   set(i);
-  return { set: j => { stop(); set(j); }, stop, play: run, get index() { return i; } };
+  return { set: j => { stop(); set(j); }, stop, play: run, refresh: () => set(i), get index() { return i; } };
 }
 
 // ---------------------------------------------------------------- the CNN: a window of three sliding along the text, layer after layer
@@ -619,9 +626,9 @@ function render(m) {
   renderBars("cnn-bars", m.cnn, m.actual, "cnn-actual");
   renderBars("lstm-bars", m.lstm, m.actual, "lstm-actual");
   renderHeatmaps(m);
-  renderInfluence("cnn-influence", m.influence.cnn, m.tokens);
-  renderInfluence("lstm-influence", m.influence.lstm, m.tokens);
-  renderCurve(m);
+  for (const id of ["cnn-influence", "lstm-influence"]) { const el = $(id); el.replaceChildren(chip("computing…", "static")); el.firstChild.style.color = "#aaa"; }
+  d3.select("#curve").attr("viewBox", "0 0 1120 300").selectAll("*").remove();       // the curves and the ablations arrive a moment later
+  $("context-note").textContent = "computing the context curves…"; $("k-cnn").replaceChildren(); $("k-lstm").replaceChildren();
   renderInside(m);
   renderMap("map-cnn", m.inside.maps.cnn); renderMap("map-lstm", m.inside.maps.lstm);
   renderCNNFlow(m);

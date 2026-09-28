@@ -1,10 +1,12 @@
 // Web Worker: loads the tokenizer and the two models once, then answers analysis requests off the main thread.
+// Each request is answered in two phases: first the main result (the forward passes and everything the page draws first),
+// then, in deferred chunks that a newer request cancels, the intermediate logit lens, the ablations and the context curves.
 import { ByteLevelBPE } from "./tokenizer.js";
 import { parseSafetensors, LocalCNN, LSTMLM, logSoftmax, topk, nearestTokens, influenceCNN, influenceLSTM } from "./models.js";
 
 const MAX_TOKENS = 64;
 const WINDOW = 16;                                 // positions followed by the step-by-step diagrams, ending at the selected token
-let tok, cnn, lstm, frequent = [], pca = {};
+let tok, cnn, lstm, frequent = [], pca = {}, requestId = 0;
 
 // two principal components of the embedding rows of the frequent tokens (power iteration with deflation)
 function fitPCA(E, d, ids) {
@@ -54,33 +56,34 @@ function meanRows(arr, T, H) {                     // (T x H) -> T means
   return out;
 }
 
-function analyseModel(model, ids, position, ks) {
+// forward pass; the surprise of every token; the prediction after `position` (top 10) and the top 3 at every position of the window,
+// all from one pass over the logits
+function analyseModel(model, ids, position, p0) {
   const T = ids.length, state = model.forward(ids);
-  const logprobs = new Float32Array(T - 1);
-  for (let t = 0; t < T - 1; t++) logprobs[t] = logSoftmax(model.logitsAt(state, t))[ids[t + 1]];
-  const lpAt = logSoftmax(model.logitsAt(state, position));
-  const actual = position + 1 < T ? ids[position + 1] : null;
-  const top = topk(lpAt, 10).map(r => ({ ...r, text: tok.decode([r.id]) }));
-  const curve = [];
-  for (const k of ks) {
-    if (k > position + 1) break;
-    const ctx = ids.slice(position + 1 - k, position + 1);
-    const lp = logSoftmax(model.logitsAt(model.forward(ctx), ctx.length - 1));
-    curve.push({ k, actualLogprob: actual === null ? null : lp[actual], top: topk(lp, 5).map(r => ({ ...r, text: tok.decode([r.id]) })) });
+  const logprobs = new Float32Array(T - 1), tops = [];
+  let lpAt = null;
+  for (let t = 0; t < T; t++) {
+    if (t === T - 1 && t > position) continue;      // the last token, not selected: nothing follows it and it is outside the window
+    const lp = logSoftmax(model.logitsAt(state, t));
+    if (t < T - 1) logprobs[t] = lp[ids[t + 1]];
+    if (t >= p0 && t <= position) tops.push(topk(lp, 3));
+    if (t === position) lpAt = lp;
   }
-  return { state, logprobs, top, actualLogprob: actual === null ? null : lpAt[actual], curve, lpAt };
+  const actual = position + 1 < T ? ids[position + 1] : null;
+  return { state, logprobs, lpAt, tops, top: topk(lpAt, 10), actualLogprob: actual === null ? null : lpAt[actual] };
 }
 
 onmessage = e => {
+  const id = ++requestId;
   const { text: raw, position: wanted, ks } = e.data;
   const text = raw.trim().split(/\s+/).join(" ");                 // whitespace collapsed to one space, as in the training corpus
   const tokens = tok.tokenize(text);
   const truncated = tokens.length > MAX_TOKENS;
   const kept = tokens.slice(0, MAX_TOKENS), ids = kept.map(t => t.id), T = ids.length;
-  if (T === 0) { postMessage({ type: "result", tokens: [], T: 0 }); return; }
+  if (T === 0) { postMessage({ type: "result", id, tokens: [], T: 0 }); return; }
   const position = Math.min(Math.max(wanted ?? Math.max(T - 2, 0), 0), T - 1);   // default: predict the last token, so there is an actual next token to compare with
-  const t0 = performance.now();
-  const c = analyseModel(cnn, ids, position, ks), l = analyseModel(lstm, ids, position, ks);
+  const p0 = Math.max(0, position - WINDOW + 1), t0 = performance.now();
+  const c = analyseModel(cnn, ids, position, p0), l = analyseModel(lstm, ids, position, p0);
   const row = (arr, width, t) => arr.slice(t * width, (t + 1) * width);        // one position of a (T x width) array
   const decode = rows => rows.map(r => ({ ...r, text: tok.decode([r.id]) }));
   const p = position, d = cnn.d;
@@ -101,29 +104,49 @@ onmessage = e => {
     add(ids[p], "selected");
     inside.maps[name] = pts;
   }
-  // step by step: every intermediate vector at every position (the diagrams pick their window), and, for the positions of the
-  // window, what the CNN would predict from the stream after each layer ("logit lens") and what the LSTM predicts at each step
-  const p0 = Math.max(0, p - WINDOW + 1);
-  const streams = [...c.state.record.map(r => r.hIn), c.state.hFinal];         // the stream after layer 0 (the embedding), 1, 2, 3, 4
-  const lens = streams.map(s => { const out = []; for (let t = p0; t <= p; t++) out.push(decode(topk(logSoftmax(cnn.logitsFromStream(row(s, d, t))), 3))); return out; });
-  const lstmZ = [], lstmTop = [];
-  for (let t = p0; t <= p; t++) { lstmZ.push(lstm.projAt(l.state, t)); lstmTop.push(decode(topk(logSoftmax(lstm.logitsAt(l.state, t)), 3))); }
+  // step by step: every intermediate vector at every position (the diagrams pick their window). The "logit lens" of the CNN, what it
+  // would predict from the stream after each layer: after the last layer it is the prediction itself, already computed at every
+  // position; after the other layers it is computed now at the selected position and later at the others.
+  const streams = [...c.state.record.map(r => r.hIn), c.state.hFinal], L = c.state.record.length, n = p - p0 + 1;
+  const lensAt = (l, t) => decode(topk(logSoftmax(cnn.logitsFromStream(row(streams[l], d, t))), 3));
+  const lens = streams.map((_, l) => Array.from({ length: n }, (_, i) => l === L ? decode(c.tops[i]) : null));
+  for (let l = 0; l < L; l++) lens[l][n - 1] = lensAt(l, p);
+  const lstmZ = []; for (let t = p0; t <= p; t++) lstmZ.push(lstm.projAt(l.state, t));
   const flow = {
     p0,
     cnn: { layers: c.state.record.map(r => ({ hIn: r.hIn, u: r.u, gate: r.gate })), hFinal: c.state.hFinal, z: c.state.h, lens },
-    lstm: { layers: l.state.record.map(r => ({ x: r.x, nin: r.nin, input: r.input, forget: r.forget, candidate: r.candidate, output: r.output, cell: r.cell, h: r.h })), z: lstmZ, top: lstmTop },
+    lstm: { layers: l.state.record.map(r => ({ x: r.x, nin: r.nin, input: r.input, forget: r.forget, candidate: r.candidate, output: r.output, cell: r.cell, h: r.h })), z: lstmZ, top: l.tops.map(decode) },
   };
-  const influence = { cnn: influenceCNN(cnn, ids, p, c.lpAt), lstm: influenceLSTM(lstm, l.state, ids, p, l.lpAt, 16) };
-  const result = {
-    type: "result", T, position, truncated, tokens: kept.map(t => ({ id: t.id, text: t.text })), inside, flow, influence,
-    actual: position + 1 < T ? { id: ids[position + 1], text: kept[position + 1].text } : null,
-    cnn: { logprobs: c.logprobs, top: c.top, actualLogprob: c.actualLogprob, curve: c.curve,
-           gateMeans: c.state.gates.map(g => meanRows(g, T, cnn.d)) },
-    lstm: { logprobs: l.logprobs, top: l.top, actualLogprob: l.actualLogprob, curve: l.curve,
-            forget: l.state.forget, cell: l.state.cell, hidden: lstm.hidden },
+  postMessage({
+    type: "result", id, T, position, truncated, tokens: kept.map(t => ({ id: t.id, text: t.text })), inside, flow,
+    actual: p + 1 < T ? { id: ids[p + 1], text: kept[p + 1].text } : null,
+    cnn: { logprobs: c.logprobs, top: decode(c.top), actualLogprob: c.actualLogprob, gateMeans: c.state.gates.map(g => meanRows(g, T, cnn.d)) },
+    lstm: { logprobs: l.logprobs, top: decode(l.top), actualLogprob: l.actualLogprob, forget: l.state.forget, cell: l.state.cell, hidden: lstm.hidden },
     ms: Math.round(performance.now() - t0),
-  };
-  postMessage(result);                              // copied, not transferred: the forget and cell arrays are referenced twice (heat maps and flow)
+  });
+
+  // ---- phase 2: deferred chunks; a newer request makes them stop
+  const later = fn => setTimeout(() => { if (id === requestId) fn(); }, 0);
+  later(() => {
+    for (let l = 0; l < L; l++) for (let t = p0; t < p; t++) lens[l][t - p0] = lensAt(l, t);
+    postMessage({ type: "lens", id, lens });
+    later(() => {
+      const t1 = performance.now();
+      postMessage({ type: "influence", id, influence: { cnn: influenceCNN(cnn, ids, p, c.lpAt), lstm: influenceLSTM(lstm, l.state, ids, p, l.lpAt, 16) } });
+      // context curves, one k per chunk. The CNN cannot see beyond its window, so from there on its prediction is the full one;
+      // the LSTM must be rerun from a blank memory for every k.
+      const curves = { cnn: [], lstm: [] }, actual = p + 1 < T ? ids[p + 1] : null, kList = ks.filter(k => k <= p + 1);
+      const curveRow = (k, lp) => ({ k, actualLogprob: actual === null ? null : lp[actual], top: decode(topk(lp, 5)) });
+      const step = i => {
+        if (i >= kList.length) { postMessage({ type: "curve", id, curves, ms: Math.round(performance.now() - t1) }); return; }
+        const k = kList[i], ctx = ids.slice(p + 1 - k, p + 1);
+        curves.cnn.push(curveRow(k, k >= cnn.receptiveField ? c.lpAt : logSoftmax(cnn.logitsAt(cnn.forward(ctx), k - 1))));
+        curves.lstm.push(curveRow(k, k === p + 1 ? l.lpAt : logSoftmax(lstm.logitsAt(lstm.forward(ctx), k - 1))));
+        later(() => step(i + 1));
+      };
+      step(0);
+    });
+  });
 };
 
 init().catch(err => postMessage({ type: "error", text: String(err) }));
