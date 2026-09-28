@@ -424,13 +424,26 @@ function renderCNNStep(m, l, t) {
   }
   const Lr = F.cnn.layers[l - 1];
   const wName = j => `W${"₀₁₂"[j]}⁽${l}⁾`;
-  sepRow(c, `layer ${l} at ${tokAt(t)}: reads the stream h⁽${l - 1}⁾ at up to three positions, each through its own matrix`);
+  sepRow(c, `layer ${l} at ${tokAt(t)}: reads the stream h⁽${l - 1}⁾ at up to three positions`);
+  const inputs = [];
   for (let j = 2; j >= 0; j--) {
     const s = t - j;
-    if (s < 0) { opRow(c, `${wName(j)} has nothing to read: position t−${j} is before the start of the text`); continue; }
-    stripRow(c, `${wName(j)} · h⁽${l - 1}⁾ at ${j ? `t−${j}` : "t"}`, tokAt(s), rowOf(streams[l - 1], d, s));
+    if (s < 0) { opRow(c, `nothing to read at t−${j}: it is before the start of the text, so ${wName(j)} is not used here`); continue; }
+    const vec = rowOf(streams[l - 1], d, s); inputs.push({ j, s, vec });
+    stripRow(c, `h⁽${l - 1}⁾ at ${j ? `t−${j}` : "t"}`, `${tokAt(s)}, ${d}`, vec);
   }
-  opRow(c, `each matrix has ${2 * d} rows: their sum with the bias is one vector of ${2 * d} numbers, a = b⁽${l}⁾ + ${[2, 1, 0].filter(j => t - j >= 0).map(j => `${wName(j)} h${j ? `ₜ₋${"₀₁₂"[j]}` : "ₜ"}`).join(" + ")}`);
+  const terms = [2, 1, 0].filter(j => t - j >= 0).map(j => `${wName(j)} h${j ? `ₜ₋${"₀₁₂"[j]}` : "ₜ"}`).join(" + ");
+  if (cnnWeights) {                                                                // the products, computed here with the layer's weights
+    const Wl = cnnWeights[l - 1];
+    opRow(c, `each vector goes through its own matrix (${2 * d} × ${d}), which gives a vector of ${2 * d} numbers:`);
+    for (const { j, vec } of inputs) {
+      const prod = new Float32Array(2 * d), Wk = Wl.Wk[2 - j];
+      for (let o = 0; o < 2 * d; o++) { let acc = 0; const base = o * d; for (let i = 0; i < d; i++) acc += Wk[base + i] * vec[i]; prod[o] = acc; }
+      stripRow(c, `${wName(j)} h⁽${l - 1}⁾ at ${j ? `t−${j}` : "t"}`, `${2 * d}`, prod, { split: true });
+    }
+    stripRow(c, `b⁽${l}⁾`, `the bias, ${2 * d}`, Wl.b, { split: true });
+    opRow(c, `their sum is a = b⁽${l}⁾ + ${terms}, ${2 * d} numbers:`);
+  } else opRow(c, `each matrix has ${2 * d} rows: their sum with the bias is one vector of ${2 * d} numbers, a = b⁽${l}⁾ + ${terms}`);
   const u = rowOf(Lr.u, d, t), graw = rowOf(Lr.g, d, t), g = rowOf(Lr.gate, d, t);
   const a = new Float32Array(2 * d); a.set(u, 0); a.set(graw, d);
   stripRow(c, "a", `${2 * d}, the mark is the middle`, a, { split: true });
