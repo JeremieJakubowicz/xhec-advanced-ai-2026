@@ -83,6 +83,8 @@ a { color: inherit; }
 .flow .flowline.current { stroke: var(--accent); stroke-width: 2.2; opacity: 1; }
 .flow .flowline.future { opacity: .08; }
 .flow .cellframe { fill: none; stroke: #c9c9c9; }
+.flow .toklab.ctx { fill: #aaa; }
+.flow .wlab { font-size: 10px; fill: var(--accent); font-weight: 600; paint-order: stroke; stroke: #fff; stroke-width: 3px; stroke-linejoin: round; }
 .flow .box { fill: #fff; stroke: #c9c9c9; }
 .flow .box.carried { stroke-dasharray: 3,3; }
 .flow .bracket { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5,3; }

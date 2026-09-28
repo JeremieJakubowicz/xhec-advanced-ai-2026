@@ -276,31 +276,40 @@ function player(barId, nSteps, onStep, describe, interval) {
 function renderCNNFlow(m) {
   const F = m.flow, d = m.inside.embedding.length, p = m.position, p0 = F.p0, n = p - p0 + 1, L = F.cnn.layers.length;
   const streams = [...F.cnn.layers.map(r => r.hIn), F.cnn.hFinal];                 // the stream after layer 0 (the embedding), 1, …, L
-  const svg = d3.select("#cnn-flow"), W = 1120, left = 130, right = 14;
-  const cw = Math.min(96, (W - left - right) / n), cellW = cw - 10, cellH = 24, pitch = 62, top = 34;
+  const svg = d3.select("#cnn-flow"), W = 1120, left = 130, right = 14, c0 = Math.max(0, p0 - 2);   // c0: first drawn column, the two real tokens before the window
+  const cw = Math.min(96, (W - left - right) / (p - c0 + 1)), cellW = cw - 10, cellH = 14, pitch = 60, top = 34;
   const rowY = r => top + r * pitch, zY = rowY(L) + pitch, predY = zY + cellH + 24, Hh = predY + 14;
-  const x = t => left + (t - p0) * cw + 5;                                          // left edge of the cell at position t
+  const x = t => left + (t - c0) * cw + 5;                                          // left edge of the cell at position t
+  const wName = (j, l) => `W${"₀₁₂"[j]}⁽${l}⁾`;                                      // the weight matrix on the edge from position t−j into layer l
   svg.attr("viewBox", `0 0 ${W} ${Hh}`).selectAll("*").remove();
   const part = name => svg.append("g").attr("data-part", name);
   const labels = ["embedding h⁽⁰⁾", ...d3.range(1, L + 1).map(l => `after layer ${l}: h⁽${l}⁾`)];
   const gTok = part("tokens");
-  for (let t = p0; t <= p; t++) gTok.append("text").attr("class", "toklab" + (t === p ? " sel" : "")).attr("x", x(t) + cellW / 2).attr("y", 18).attr("text-anchor", "middle").text(clip(show(m.tokens[t].text), cellW));
-  if (p0 > 0) gTok.append("text").attr("class", "sublab").attr("x", left - 8).attr("y", 18).attr("text-anchor", "end").text(`… ${p0} earlier token${p0 > 1 ? "s" : ""}`);
-  // one line per (layer, position, source): the three positions a layer reads; sources before the window come in from the left edge
+  for (let t = c0; t <= p; t++) gTok.append("text").attr("class", "toklab" + (t === p ? " sel" : t < p0 ? " ctx" : "")).attr("x", x(t) + cellW / 2).attr("y", 18).attr("text-anchor", "middle").text(clip(show(m.tokens[t].text), cellW));
+  if (c0 > 0) gTok.append("text").attr("class", "sublab").attr("x", left - 8).attr("y", 18).attr("text-anchor", "end").text(`… ${c0} earlier token${c0 > 1 ? "s" : ""}`);
+  // one edge per (layer, position, offset j): the weight matrix W_j applied to the stream at t−j; drawn only where there is something to read
   const gLines = part("lines"), lines = [];
-  for (let l = 1; l <= L; l++) for (let t = p0; t <= p; t++) for (let k = 0; k < 3; k++) {
-    const s = t - 2 + k; if (s < 0) continue;
-    const inWin = s >= p0;
-    lines.push({ l, t, s, x1: inWin ? x(s) + cellW / 2 : left - 4, y1: rowY(l - 1) + cellH + (inWin ? 0 : 8), x2: x(t) + cellW / 2, y2: rowY(l) });
+  for (let l = 1; l <= L; l++) for (let t = p0; t <= p; t++) for (let j = 0; j < 3; j++) {
+    const s = t - j; if (s < 0) continue;
+    lines.push({ l, t, s, j, x1: x(s) + cellW / 2, y1: rowY(l - 1) + cellH, x2: x(t) + cellW / 2, y2: rowY(l) });
   }
   const lineSel = gLines.selectAll("line").data(lines).join("line").attr("class", "flowline").attr("x1", q => q.x1).attr("y1", q => q.y1).attr("x2", q => q.x2).attr("y2", q => q.y2);
+  lineSel.append("title").text(q => `${wName(q.j, q.l)} · h⁽${q.l - 1}⁾ at token ${q.s + 1}: one of the three terms of layer ${q.l} at token ${q.t + 1}`);
+  for (let l = 1; l <= L; l++) gLines.append("text").attr("class", "sublab").attr("x", left - 8).attr("y", rowY(l) - 11).attr("text-anchor", "end").text(`edges: ${wName(2, l)} ${wName(1, l)} ${wName(0, l)}`)
+    .append("title").text(`layer ${l} owns three matrices of 256 × 512 weights, one per offset (t−2, t−1, t), applied identically at every position`);
   const gCone = part("cone");
   const cellSel = [];
   for (let r = 0; r <= L; r++) {
     const g = part(r === 0 ? "emb" : `layer${r}`);
-    g.append("text").attr("class", "rowlab").attr("x", left - 8).attr("y", rowY(r) + cellH / 2 + 4).attr("text-anchor", "end").text(labels[r]);
+    g.append("text").attr("class", "rowlab").attr("x", left - 8).attr("y", rowY(r) + cellH / 2 + 4).attr("text-anchor", "end").text(labels[r] + (r === 0 ? " (256)" : ""));
+    for (let t = c0; t < p0; t++) {                                                 // the two real tokens before the window: their actual values, dimmed
+      const vec = rowOf(streams[r], d, t), cg = g.append("g").attr("class", "cell ctx").attr("transform", `translate(${x(t)},${rowY(r)})`);
+      cg.append("image").attr("href", rasterURL(vec)).attr("width", cellW).attr("height", cellH).attr("preserveAspectRatio", "none").attr("opacity", .45);
+      cg.append("rect").attr("class", "cellframe").attr("width", cellW).attr("height", cellH);
+      cg.append("title").text(`${labels[r]}, token ${t + 1} (${show(m.tokens[t].text)}), before the window: norm ${norm(vec).toFixed(2)}`);
+    }
     const cells = d3.range(p0, p + 1).map(t => ({ r, t, vec: rowOf(streams[r], d, t) }));
-    const cg = g.selectAll("g.cell").data(cells).join("g").attr("class", "cell").attr("transform", c => `translate(${x(c.t)},${rowY(c.r)})`).style("cursor", "pointer")
+    const cg = g.selectAll("g.cell:not(.ctx)").data(cells).join("g").attr("class", "cell").attr("transform", c => `translate(${x(c.t)},${rowY(c.r)})`).style("cursor", "pointer")
       .on("click", (_, c) => players.cnn.set(c.r * n + (c.t - p0)));
     cg.append("image").attr("href", c => rasterURL(c.vec)).attr("width", cellW).attr("height", cellH).attr("preserveAspectRatio", "none");
     cg.append("rect").attr("class", "cellframe").attr("width", cellW).attr("height", cellH);
@@ -321,6 +330,7 @@ function renderCNNFlow(m) {
   predSel.append("title").text(t => F.cnn.lens[L][t - p0].map(r => `${show(r.text)} ${(100 * r.prob).toFixed(0)} %`).join(", "));
   const gMark = part("marks");
   const bracket = gMark.append("rect").attr("class", "bracket").attr("rx", 4).attr("height", cellH + 8);
+  const wLabels = [0, 1, 2].map(j => gMark.append("text").attr("class", "wlab").attr("text-anchor", "middle"));   // the names of the three active edges
   const target = gMark.append("rect").attr("class", "target").attr("rx", 3).attr("width", cellW + 6).attr("height", cellH + 6);
   const N = (L + 1) * n;                                                            // steps: layer-major, the order in which a convolution is computed
   const onStep = i => {
@@ -328,10 +338,15 @@ function renderCNNFlow(m) {
     cellSel.forEach(sel => sel.attr("opacity", c => (c.r < l || (c.r === l && c.t <= t)) ? 1 : .15));
     lineSel.attr("class", q => "flowline" + (q.l === l && q.t === t ? " current" : (q.l < l || (q.l === l && q.t <= t)) ? "" : " future"));
     const cone = [];                                                                // every cell below that has contributed to the current one
-    for (let r = 0; r < l; r++) for (let s = Math.max(p0, t - 2 * (l - r)); s <= t; s++) cone.push({ r, s });
+    for (let r = 0; r < l; r++) for (let s = Math.max(c0, t - 2 * (l - r)); s <= t; s++) cone.push({ r, s });
     gCone.selectAll("rect").data(cone).join("rect").attr("class", "cone").attr("rx", 3).attr("x", c => x(c.s) - 3).attr("y", c => rowY(c.r) - 3).attr("width", cellW + 6).attr("height", cellH + 6);
-    if (l >= 1) { const s0 = Math.max(p0, t - 2); bracket.style("display", null).attr("x", x(s0) - 4).attr("y", rowY(l - 1) - 4).attr("width", x(t) + cellW + 4 - (x(s0) - 4)); }
+    if (l >= 1) { const s0 = Math.max(0, t - 2); bracket.style("display", null).attr("x", x(s0) - 4).attr("y", rowY(l - 1) - 4).attr("width", x(t) + cellW + 4 - (x(s0) - 4)); }
     else bracket.style("display", "none");
+    wLabels.forEach((lab, j) => {                                                   // W_j on the edge from t−j, staggered so that they do not overlap
+      const s = t - j, on = l >= 1 && s >= 0;
+      lab.style("display", on ? null : "none");
+      if (on) lab.attr("x", (x(s) + x(t)) / 2 + cellW / 2).attr("y", (rowY(l - 1) + cellH + rowY(l)) / 2 + 4 + (1 - j) * 7).text(wName(j, l));
+    });
     target.attr("x", x(t) - 3).attr("y", rowY(l) - 3);
     gZ.attr("opacity", l === L && t === p ? 1 : .15);
     predSel.attr("opacity", s => (l === L && s <= t) ? 1 : .15);
@@ -340,8 +355,9 @@ function renderCNNFlow(m) {
   const describe = i => {
     const l = Math.floor(i / n), t = p0 + i % n, tk = JSON.stringify(m.tokens[t].text);
     if (l === 0) return `step ${i + 1} of ${N}: look up the embedding of token ${t + 1} ${tk}`;
-    const from = t - 2 < 0 ? "the start of the text" : `token ${t - 1}`;
-    return `step ${i + 1} of ${N}: layer ${l} at token ${t + 1} ${tk} reads h⁽${l - 1}⁾ from ${from} to token ${t + 1} and writes h⁽${l}⁾` + (l === L && t === p ? " → LayerNorm → 8,000 logits" : "");
+    const terms = [2, 1, 0].filter(j => t - j >= 0).map(j => `${wName(j, l)} · token ${t - j + 1}`).join(" + ");
+    const edge = t < 2 ? ` (${t === 0 ? "the two" : "one of the"} earlier slots fall${t === 0 ? "" : "s"} before the text: nothing to read there)` : "";
+    return `step ${i + 1} of ${N}: layer ${l} at token ${t + 1} ${tk}: b + ${terms}${edge} → u, g → writes h⁽${l}⁾` + (l === L && t === p ? " → LayerNorm → 8,000 logits" : "");
   };
   players.cnn = player("cnn-controls", N, onStep, describe, 220);
 }
@@ -357,12 +373,14 @@ function renderCNNStep(m, l, t) {
     return;
   }
   const Lr = F.cnn.layers[l - 1];
-  sepRow(c, `layer ${l} at ${tokAt(t)}: reads the stream h⁽${l - 1}⁾ at three positions`);
-  for (let k = 2; k >= 0; k--) {
-    const s = t - k;
-    stripRow(c, k ? `h⁽${l - 1}⁾ at t−${k}` : `h⁽${l - 1}⁾ at t`, s < 0 ? "before the start of the text: zeros" : tokAt(s), s < 0 ? new Float32Array(d) : rowOf(streams[l - 1], d, s));
+  const wName = j => `W${"₀₁₂"[j]}⁽${l}⁾`;
+  sepRow(c, `layer ${l} at ${tokAt(t)}: reads the stream h⁽${l - 1}⁾ at up to three positions, each through its own matrix`);
+  for (let j = 2; j >= 0; j--) {
+    const s = t - j;
+    if (s < 0) { opRow(c, `${wName(j)} has nothing to read: position t−${j} is before the start of the text`); continue; }
+    stripRow(c, `${wName(j)} · h⁽${l - 1}⁾ at ${j ? `t−${j}` : "t"}`, tokAt(s), rowOf(streams[l - 1], d, s));
   }
-  opRow(c, `the three vectors, multiplied by the layer's weights (3 × ${d} → 2 × ${d}), give a content u and a gate g`);
+  opRow(c, `a = b⁽${l}⁾ + ${[2, 1, 0].filter(j => t - j >= 0).map(j => `${wName(j)} h${j ? `ₜ₋${"₀₁₂"[j]}` : "ₜ"}`).join(" + ")}, ${2 * d} numbers: the first ${d} are the content u, the last ${d} the gate g`);
   const u = rowOf(Lr.u, d, t), g = rowOf(Lr.gate, d, t);
   stripRow(c, "content u", `${d}`, u);
   stripRow(c, "gate σ(g)", `${d}, between 0 and 1`, g, { gate: true });
@@ -380,11 +398,11 @@ function renderCNNStep(m, l, t) {
 function renderLSTMFlow(m) {
   const F = m.flow, p = m.position, p0 = F.p0, n = p - p0 + 1, H = m.lstm.hidden, Ls = F.lstm.layers;
   const svg = d3.select("#lstm-flow"), W = 1120, left = 130, right = 14, cols = n + 1;   // one extra column on the left: the state carried in
-  const cw = Math.min(96, (W - left - right) / cols), cellW = cw - 14, cellH = 24, boxH = 90;
+  const cw = Math.min(96, (W - left - right) / cols), cellW = cw - 14, cellH = 14, boxH = 84;
   const xY = 34, lY = [xY + cellH + 34, xY + cellH + 34 + boxH + 34];
   const survY = lY[1] + boxH + 28, predY = survY + 20 + 26, Hh = predY + 14;
   const x = t => left + (t - p0 + 1) * cw + 7;                                     // left edge of column t; column p0−1 is the carried state
-  const cY = y => y + 46, hY = y => y + 70;                                          // y of the memory and output rasters inside a box
+  const cY = y => y + 44, hY = y => y + 66;                                          // y of the memory and output strips inside a box
   svg.attr("viewBox", `0 0 ${W} ${Hh}`).selectAll("*").remove();
   const defs = svg.append("defs");
   for (const [id, color] of [["arr", "#999"], ["arr-mem", "#1b9e77"], ["arr-cur", "#d95f02"]])
@@ -404,8 +422,8 @@ function renderLSTMFlow(m) {
   const gArrC = part("arrows-c"), gArrH = part("arrows-h"), gArrV = part("arrows-v"), arrows = [];
   for (let l = 0; l < 2; l++) for (let t = p0; t <= p; t++) {
     const y = lY[l];
-    arrows.push({ kind: "c", t, el: gArrC.append("line").attr("x1", x(t - 1) + cellW).attr("y1", cY(y) + 8).attr("x2", x(t) - 1).attr("y2", cY(y) + 8) });
-    arrows.push({ kind: "h", t, el: gArrH.append("line").attr("x1", x(t - 1) + cellW).attr("y1", hY(y) + 8).attr("x2", x(t) - 1).attr("y2", hY(y) + 8) });
+    arrows.push({ kind: "c", t, el: gArrC.append("line").attr("x1", x(t - 1) + cellW).attr("y1", cY(y) + 6).attr("x2", x(t) - 1).attr("y2", cY(y) + 6) });
+    arrows.push({ kind: "h", t, el: gArrH.append("line").attr("x1", x(t - 1) + cellW).attr("y1", hY(y) + 6).attr("x2", x(t) - 1).attr("y2", hY(y) + 6) });
     arrows.push({ kind: "v", t, el: gArrV.append("line").attr("x1", x(t) + cellW / 2).attr("y1", l === 0 ? xY + cellH : lY[0] + boxH).attr("x2", x(t) + cellW / 2).attr("y2", y - 1) });
   }
   const meters = [["f", "forget", "#1b9e77"], ["i", "input", "#d95f02"], ["o", "output", "#6b6b6b"]];
@@ -414,14 +432,14 @@ function renderLSTMFlow(m) {
     const g = part(`l${l + 1}`), y = lY[l], Lr = Ls[l];
     g.append("text").attr("class", "rowlab").attr("x", left - 8).attr("y", y + 12).attr("text-anchor", "end").text(`layer ${l + 1}`);
     g.append("text").attr("class", "sublab").attr("x", left - 8).attr("y", y + 26).attr("text-anchor", "end").text("gates f, i, o (mean of 512)");
-    g.append("text").attr("class", "sublab").attr("x", left - 8).attr("y", cY(y) + 12).attr("text-anchor", "end").text("memory c");
-    g.append("text").attr("class", "sublab").attr("x", left - 8).attr("y", hY(y) + 12).attr("text-anchor", "end").text("output h");
+    g.append("text").attr("class", "sublab").attr("x", left - 8).attr("y", cY(y) + 10).attr("text-anchor", "end").text("memory c (512)");
+    g.append("text").attr("class", "sublab").attr("x", left - 8).attr("y", hY(y) + 10).attr("text-anchor", "end").text("output h (512)");
     const cg = g.append("g").attr("transform", `translate(${x(p0 - 1)},${y})`);   // the state carried into the window
     cg.append("rect").attr("class", "box carried").attr("width", cellW).attr("height", boxH).attr("rx", 4);
     const cPrev = p0 > 0 ? rowOf(Lr.cell, H, p0 - 1) : new Float32Array(H), hPrev = p0 > 0 ? rowOf(Lr.h, H, p0 - 1) : new Float32Array(H);
     cg.append("text").attr("class", "gl").attr("x", cellW / 2).attr("y", 22).attr("text-anchor", "middle").text(p0 > 0 ? `after token ${p0}` : "zeros");
-    cg.append("image").attr("href", rasterURL(cPrev)).attr("x", 3).attr("y", cY(y) - y).attr("width", cellW - 6).attr("height", 16).attr("preserveAspectRatio", "none");
-    cg.append("image").attr("href", rasterURL(hPrev)).attr("x", 3).attr("y", hY(y) - y).attr("width", cellW - 6).attr("height", 16).attr("preserveAspectRatio", "none");
+    cg.append("image").attr("href", rasterURL(cPrev)).attr("x", 3).attr("y", cY(y) - y).attr("width", cellW - 6).attr("height", 12).attr("preserveAspectRatio", "none");
+    cg.append("image").attr("href", rasterURL(hPrev)).attr("x", 3).attr("y", hY(y) - y).attr("width", cellW - 6).attr("height", 12).attr("preserveAspectRatio", "none");
     const cells = d3.range(p0, p + 1).map(t => ({ l, t }));
     const bg = g.selectAll("g.cell").data(cells).join("g").attr("class", "cell").attr("transform", c => `translate(${x(c.t)},${y})`).style("cursor", "pointer").on("click", (_, c) => players.lstm.set(c.t - p0));
     bg.append("rect").attr("class", "box").attr("width", cellW).attr("height", boxH).attr("rx", 4);
@@ -431,8 +449,8 @@ function renderLSTMFlow(m) {
       bg.append("rect").attr("class", "meterbg").attr("x", 15).attr("y", my).attr("width", bw).attr("height", 7);
       bg.append("rect").attr("x", 15).attr("y", my).attr("height", 7).attr("fill", color).attr("width", c => bw * meanOf(rowOf(Lr[key], H, c.t)));
     });
-    bg.append("image").attr("href", c => rasterURL(rowOf(Lr.cell, H, c.t))).attr("x", 3).attr("y", cY(y) - y).attr("width", cellW - 6).attr("height", 16).attr("preserveAspectRatio", "none");
-    bg.append("image").attr("href", c => rasterURL(rowOf(Lr.h, H, c.t))).attr("x", 3).attr("y", hY(y) - y).attr("width", cellW - 6).attr("height", 16).attr("preserveAspectRatio", "none");
+    bg.append("image").attr("href", c => rasterURL(rowOf(Lr.cell, H, c.t))).attr("x", 3).attr("y", cY(y) - y).attr("width", cellW - 6).attr("height", 12).attr("preserveAspectRatio", "none");
+    bg.append("image").attr("href", c => rasterURL(rowOf(Lr.h, H, c.t))).attr("x", 3).attr("y", hY(y) - y).attr("width", cellW - 6).attr("height", 12).attr("preserveAspectRatio", "none");
     bg.append("title").text(c => `layer ${l + 1}, token ${c.t + 1} (${show(m.tokens[c.t].text)}): forget ${meanOf(rowOf(Lr.forget, H, c.t)).toFixed(2)}, input ${meanOf(rowOf(Lr.input, H, c.t)).toFixed(2)}, output ${meanOf(rowOf(Lr.output, H, c.t)).toFixed(2)}; |c| = ${norm(rowOf(Lr.cell, H, c.t)).toFixed(1)}`);
     boxSel.push(bg);
   }
@@ -547,7 +565,7 @@ const TOUR = [
     run: (m, q) => { focusAll(); goTo("tokens", q); } },
   { title: "The embedding", text: "Each id selects one row of the embedding table E: 256 learned numbers, the same wherever the token appears in the text. Nothing says what they mean; training moves them until tokens used in the same way end up close to each other. The maps show the geometry that came out of it.",
     run: (m, q) => { focus("cnn-flow", ["tokens", "emb"]); players.cnn.set(cnnStep(m, 0, m.position)); goTo("emb-strips", q); } },
-  { title: "One layer of the CNN reads three positions", text: "Layer 1, at token t, reads the stream at t−2, t−1 and t (the dashed bracket) and multiplies these three vectors by its weights, giving a content u and a gate g. That is all a convolution is: the same weights, the same window, at every position.",
+  { title: "One layer of the CNN reads three positions", text: "Layer 1, at token t, reads the stream at t−2, t−1 and t (the dashed bracket), each through its own matrix, W₂, W₁, W₀: the three edges. Their sum, plus a bias, gives a content u and a gate g. That is all a convolution is: three matrices, the same at every position. At the start of the text only the edges that have something to read exist.",
     run: (m, q) => { focus("cnn-flow", ["tokens", "emb", "layer1", "lines", "marks"]); players.cnn.set(cnnStep(m, 1, m.position)); goTo("cnn-flow", q); } },
   { title: "The gate and the residual addition", text: "σ(g), between 0 and 1, decides how much of u gets written; the layer adds u ⊙ σ(g) to the stream instead of replacing it, so what the embedding said is still there underneath. Below the diagram: the actual numbers of this step, one strip per vector, and what the network would already predict from them.",
     run: (m, q) => { focus("cnn-flow", ["tokens", "emb", "layer1", "lines", "marks"]); players.cnn.set(cnnStep(m, 1, m.position)); goTo("cnn-step", q); } },
