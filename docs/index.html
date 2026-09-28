@@ -20,7 +20,7 @@
   <textarea id="text" rows="3" spellcheck="false">Le peuple de Paris est le peuple de la liberte. Il a fait la revolution, et il</textarea>
   <div class="hint"><span id="status">loading…</span><span id="timing"></span></div>
   <div class="strip-block">
-    <div class="strip-label">tokens <span class="muted">(click one: the models predict what comes after it)</span></div>
+    <div class="strip-label">tokens <span class="muted">(click one: the models predict what comes after it; runs of spaces and line breaks are collapsed to one space, as in the training corpus)</span></div>
     <div id="tokens" class="strip"></div>
   </div>
   <div class="strip-block">
@@ -40,6 +40,9 @@
     <h3>What the prediction can see</h3>
     <p class="explain">Four causal convolutions of kernel 3: the prediction after the selected token depends on that token and the eight before it, and on nothing else. Highlighted: its receptive field.</p>
     <div id="cnn-rf" class="strip"></div>
+    <h3>Which of these tokens it actually uses</h3>
+    <p class="explain">Erase one token of the window (replace its embedding by zeros) and measure how much the prediction changes, in bits. Dark: the prediction depends on that token. Hover for the value.</p>
+    <div id="cnn-influence" class="strip"></div>
     <h3>How much each layer writes</h3>
     <p class="explain">Each layer adds <em>u ⊙ σ(g)</em> to its input. The map shows the average gate σ(g) at every position: dark means the layer is writing a lot there.</p>
     <canvas id="cnn-gates" class="heatmap"></canvas>
@@ -57,6 +60,9 @@
     <div class="heatmap-label">layer 2</div>
     <canvas id="lstm-forget-1" class="heatmap tall"></canvas>
     <div class="axis-note" id="lstm-forget-note"></div>
+    <h3>Which past tokens it actually uses</h3>
+    <p class="explain">Same test on the last sixteen tokens: erase one, recompute from there, measure the change of the prediction in bits. The LSTM can be influenced by tokens far outside the CNN's window; whether it is depends on the text.</p>
+    <div id="lstm-influence" class="strip"></div>
   </div>
 </section>
 
@@ -73,6 +79,50 @@
     <div><div class="strip-label">CNN, top 5 with k tokens</div><ol id="k-cnn" class="toplist"></ol></div>
     <div><div class="strip-label">LSTM, top 5 with k tokens</div><ol id="k-lstm" class="toplist"></ol></div>
   </div>
+</section>
+
+<section id="inside">
+  <h2>Inside the networks: the numbers at the selected token</h2>
+  <p class="explain">Everything above is computed from vectors of a few hundred numbers. This section shows them, for the selected token only, as the text flows through each network: one strip per vector, one small cell per coordinate, colour for the value. Hover a cell to read it. The numbers are the actual ones the browser just computed.</p>
+  <div class="legend">colour scale, per strip: <span class="sw" style="background:#2166ac"></span> most negative &nbsp; <span class="sw" style="background:#f7f7f7"></span> zero &nbsp; <span class="sw" style="background:#b2182b"></span> most positive &nbsp; · &nbsp; gates (0 to 1): <span class="sw" style="background:#f7f7f7"></span> closed &nbsp; <span class="sw" style="background:#4d9221"></span> open</div>
+
+  <h3>0. From characters to tokens</h3>
+  <p class="explain">The tokenizer first cuts the text into pieces with a fixed rule (a regular expression: a word with the space before it, a number, a run of punctuation). Each piece is then turned into bytes, each byte into a printable character, and merges learned on the Hugo corpus are applied in order of priority until no merge applies. What remains are the tokens.</p>
+  <div class="strip-label">the pieces of your text <span class="muted">(hover: number of tokens; the piece containing the selected token is outlined)</span></div>
+  <div id="pieces" class="strip"></div>
+  <div class="strip-label">the selected piece, step by step</div>
+  <div id="ladder" class="ladder"></div>
+
+  <h3>1. The embedding</h3>
+  <p class="explain" id="emb-note"></p>
+  <div id="emb-strips" class="strips"></div>
+  <p class="explain">Where the token sits among the others: the 600 most frequent tokens of the corpus (grey), the tokens of your text (orange), the selected one (large) and its nearest neighbours (green), projected on the two main directions of each model's embedding space. Hover a dot to read the token.</p>
+  <div class="two-columns">
+    <div><div class="strip-label">CNN embeddings</div><svg id="map-cnn" class="map"></svg></div>
+    <div><div class="strip-label">LSTM embeddings</div><svg id="map-lstm" class="map"></svg></div>
+  </div>
+  <div class="two-columns small">
+    <div><div class="strip-label">nearest tokens in the CNN's embedding space (cosine)</div><ol id="nn-cnn" class="toplist"></ol></div>
+    <div><div class="strip-label">nearest tokens in the LSTM's embedding space</div><ol id="nn-lstm" class="toplist"></ol></div>
+  </div>
+
+  <div class="two-columns">
+    <div class="panel">
+      <h3>2a. Through the CNN: the residual stream</h3>
+      <p class="explain">The stream starts as the embedding. Each layer reads the last three positions of the stream, computes a content <em>u</em> and a gate σ(<em>g</em>), and adds <em>u ⊙ σ(g)</em> to the stream. Watch how little a layer changes the stream, and where. After the last layer, LayerNorm rescales the stream into <em>z</em>, whose dot products with the 8,000 embeddings are the logits.</p>
+      <div id="cnn-inside" class="strips"></div>
+    </div>
+    <div class="panel">
+      <h3>2b. Through the LSTM: memory and gates</h3>
+      <p class="explain">Each layer receives an input <em>x</em> (the embedding for layer 1, the output of layer 1 for layer 2) and its own previous output <em>h<sub>t−1</sub></em> and memory <em>c<sub>t−1</sub></em>. From <em>x</em> and <em>h<sub>t−1</sub></em> it computes the candidate and the three gates, then updates the memory and reads the output. The projection <em>z</em> of the last output is what meets the embeddings.</p>
+      <div id="lstm-inside" class="strips"></div>
+    </div>
+  </div>
+  <h3>3. The LSTM's memory over time</h3>
+  <p class="explain">The twelve memory slots of layer 2 with the largest values at the selected token, followed across the whole text. A flat line is a slot holding on to something; a jump is a write; a decay towards zero is the forget gate at work.</p>
+  <svg id="memory-traj"></svg>
+  <h3>4. From <em>z</em> to the distribution</h3>
+  <p class="explain" id="logit-note"></p>
 </section>
 
 <footer>

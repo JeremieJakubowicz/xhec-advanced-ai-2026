@@ -72,6 +72,31 @@ export class ByteLevelBPE {
 
   encode(text) { return this.tokenize(text).map(t => t.id); }
 
+  // the pre-tokenizer's pieces of a text (the regex chunks), in order
+  pieces(text) { return text.match(GPT2_PATTERN) || []; }
+
+  // how one piece becomes tokens: its UTF-8 bytes, their byte-level characters, then every merge in order
+  explain(piece) {
+    const bytes = Array.from(this.encoder.encode(piece));
+    const mapped = bytes.map(b => this.byteToChar[b]);
+    let symbols = mapped.slice(); const steps = [{ symbols: symbols.slice(), rank: null, merged: null }];
+    while (symbols.length > 1) {
+      let best = null, bestRank = Infinity;
+      for (let i = 0; i < symbols.length - 1; i++) {
+        const r = this.ranks.get(symbols[i] + "\u0000" + symbols[i + 1]);
+        if (r !== undefined && r < bestRank) { bestRank = r; best = i; }
+      }
+      if (best === null) break;
+      const merged = symbols[best] + symbols[best + 1], next = [];
+      for (let i = 0; i < symbols.length; i++) {
+        if (i < symbols.length - 1 && symbols[i] === symbols[best] && symbols[i + 1] === symbols[best + 1]) { next.push(merged); i++; }
+        else next.push(symbols[i]);
+      }
+      symbols = next; steps.push({ symbols: symbols.slice(), rank: bestRank, merged });
+    }
+    return { piece, bytes, mapped, steps, ids: symbols.map(sym => this.vocab.get(sym)) };
+  }
+
   decodeToken(sym) {
     const bytes = new Uint8Array(Array.from(sym, ch => this.charToByte.get(ch)));
     return this.decoder.decode(bytes);
