@@ -3,6 +3,7 @@ import { ByteLevelBPE } from "./tokenizer.js";
 import { parseSafetensors, LocalCNN, LSTMLM, logSoftmax, topk, nearestTokens, influenceCNN, influenceLSTM } from "./models.js";
 
 const MAX_TOKENS = 64;
+const WINDOW = 16;                                 // positions followed by the step-by-step diagrams, ending at the selected token
 let tok, cnn, lstm, frequent = [], pca = {};
 
 // two principal components of the embedding rows of the frequent tokens (power iteration with deflation)
@@ -44,7 +45,7 @@ async function init() {
   try { frequent = JSON.parse(new TextDecoder().decode(await fetchBuffer("models/frequent.json", "frequent"))); } catch (e) { frequent = []; }
   const ids = frequent.map(([id]) => id);
   if (ids.length) { pca.cnn = fitPCA(cnn.E, cnn.d, ids); pca.lstm = fitPCA(lstm.E, lstm.d, ids); }
-  postMessage({ type: "ready", receptiveField: cnn.receptiveField, hidden: lstm.hidden, maxTokens: MAX_TOKENS });
+  postMessage({ type: "ready", receptiveField: cnn.receptiveField, hidden: lstm.hidden, maxTokens: MAX_TOKENS, window: WINDOW });
 }
 
 function meanRows(arr, T, H) {                     // (T x H) -> T means
@@ -81,31 +82,13 @@ onmessage = e => {
   const t0 = performance.now();
   const c = analyseModel(cnn, ids, position, ks), l = analyseModel(lstm, ids, position, ks);
   const row = (arr, width, t) => arr.slice(t * width, (t + 1) * width);        // one position of a (T x width) array
-  const p = position, d = cnn.d, H = lstm.hidden;
+  const decode = rows => rows.map(r => ({ ...r, text: tok.decode([r.id]) }));
+  const p = position, d = cnn.d;
   const inside = {
     tokenId: ids[p], text: kept[p].text,
-    embedding: row(cnn.E, d, ids[p]),
-    neighbours: { cnn: nearestTokens(cnn, ids[p]).map(n => ({ ...n, text: tok.decode([n.id]) })),
-                  lstm: nearestTokens(lstm, ids[p]).map(n => ({ ...n, text: tok.decode([n.id]) })) },
-    lstmEmbedding: row(lstm.E, d, ids[p]),
-    cnn: {
-      layers: c.state.record.map(r => ({ hIn: row(r.hIn, d, p), u: row(r.u, d, p), gate: row(r.gate, d, p) })),
-      hFinal: row(c.state.hFinal, d, p), z: row(c.state.h, d, p),
-    },
-    lstm: {
-      layers: l.state.record.map(r => ({
-        x: row(r.x, r.nin, p), hPrev: p > 0 ? row(r.h, H, p - 1) : new Float32Array(H), cPrev: p > 0 ? row(r.cell, H, p - 1) : new Float32Array(H),
-        input: row(r.input, H, p), forget: row(r.forget, H, p), candidate: row(r.candidate, H, p), output: row(r.output, H, p),
-        cell: row(r.cell, H, p), h: row(r.h, H, p) })),
-      z: lstm.projAt(l.state, p),
-    },
+    embedding: row(cnn.E, d, ids[p]), lstmEmbedding: row(lstm.E, d, ids[p]),
+    neighbours: { cnn: decode(nearestTokens(cnn, ids[p])), lstm: decode(nearestTokens(lstm, ids[p])) },
   };
-  // tokenization of the piece that contains the selected token
-  const pieceTexts = tok.pieces(text), pieces = [], selectedPiece = { index: 0 };
-  let seen = 0;
-  pieceTexts.forEach((pt, i) => { const n = tok.encode(pt).length; if (seen <= p && p < seen + n) selectedPiece.index = i; pieces.push({ text: pt, nTokens: n, first: seen }); seen += n; });
-  const ex = tok.explain(pieceTexts[selectedPiece.index] || "");
-  inside.tokenization = { pieces, selected: selectedPiece.index, explain: { ...ex, steps: ex.steps.map(st => ({ ...st, texts: st.symbols.map(sym => tok.decodeToken(sym)) })) } };
   // embedding maps: frequent tokens + the text's tokens + the neighbours, projected on the two principal components
   inside.maps = {};
   for (const [name, model] of [["cnn", cnn], ["lstm", lstm]]) {
@@ -118,11 +101,21 @@ onmessage = e => {
     add(ids[p], "selected");
     inside.maps[name] = pts;
   }
-  const lens = [...c.state.record.map(r => row(r.hIn, d, p)), row(c.state.hFinal, d, p)].map(h => topk(logSoftmax(cnn.logitsFromStream(h)), 3).map(r => ({ ...r, text: tok.decode([r.id]) })));
-  inside.cnn.lens = lens;                                                     // top-3 after layer 0 (the embedding), 1, 2, 3, 4
+  // step by step: every intermediate vector at every position (the diagrams pick their window), and, for the positions of the
+  // window, what the CNN would predict from the stream after each layer ("logit lens") and what the LSTM predicts at each step
+  const p0 = Math.max(0, p - WINDOW + 1);
+  const streams = [...c.state.record.map(r => r.hIn), c.state.hFinal];         // the stream after layer 0 (the embedding), 1, 2, 3, 4
+  const lens = streams.map(s => { const out = []; for (let t = p0; t <= p; t++) out.push(decode(topk(logSoftmax(cnn.logitsFromStream(row(s, d, t))), 3))); return out; });
+  const lstmZ = [], lstmTop = [];
+  for (let t = p0; t <= p; t++) { lstmZ.push(lstm.projAt(l.state, t)); lstmTop.push(decode(topk(logSoftmax(lstm.logitsAt(l.state, t)), 3))); }
+  const flow = {
+    p0,
+    cnn: { layers: c.state.record.map(r => ({ hIn: r.hIn, u: r.u, gate: r.gate })), hFinal: c.state.hFinal, z: c.state.h, lens },
+    lstm: { layers: l.state.record.map(r => ({ x: r.x, nin: r.nin, input: r.input, forget: r.forget, candidate: r.candidate, output: r.output, cell: r.cell, h: r.h })), z: lstmZ, top: lstmTop },
+  };
   const influence = { cnn: influenceCNN(cnn, ids, p, c.lpAt), lstm: influenceLSTM(lstm, l.state, ids, p, l.lpAt, 16) };
   const result = {
-    type: "result", T, position, truncated, tokens: kept.map(t => ({ id: t.id, text: t.text })), inside, influence,
+    type: "result", T, position, truncated, tokens: kept.map(t => ({ id: t.id, text: t.text })), inside, flow, influence,
     actual: position + 1 < T ? { id: ids[position + 1], text: kept[position + 1].text } : null,
     cnn: { logprobs: c.logprobs, top: c.top, actualLogprob: c.actualLogprob, curve: c.curve,
            gateMeans: c.state.gates.map(g => meanRows(g, T, cnn.d)) },
@@ -130,7 +123,7 @@ onmessage = e => {
             forget: l.state.forget, cell: l.state.cell, hidden: lstm.hidden },
     ms: Math.round(performance.now() - t0),
   };
-  postMessage(result, [...result.lstm.forget.map(a => a.buffer), ...result.lstm.cell.map(a => a.buffer)]);
+  postMessage(result);                              // copied, not transferred: the forget and cell arrays are referenced twice (heat maps and flow)
 };
 
 init().catch(err => postMessage({ type: "error", text: String(err) }));

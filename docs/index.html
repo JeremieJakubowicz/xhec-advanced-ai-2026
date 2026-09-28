@@ -82,16 +82,10 @@
 </section>
 
 <section id="inside">
-  <h2>Inside the networks: the numbers at the selected token</h2>
-  <p class="explain">Everything above is computed from vectors of a few hundred numbers. This section shows them, for the selected token only, as the text flows through each network: one strip per vector, one small cell per coordinate, colour for the value. Hover a cell to read it. The numbers are the actual ones the browser just computed.</p>
-  <div class="legend">colour scale, per strip: <span class="sw" style="background:#2166ac"></span> most negative &nbsp; <span class="sw" style="background:#f7f7f7"></span> zero &nbsp; <span class="sw" style="background:#b2182b"></span> most positive &nbsp; · &nbsp; gates (0 to 1): <span class="sw" style="background:#f7f7f7"></span> closed &nbsp; <span class="sw" style="background:#4d9221"></span> open</div>
-
-  <h3>0. From characters to tokens</h3>
-  <p class="explain">The tokenizer first cuts the text into pieces with a fixed rule (a regular expression: a word with the space before it, a number, a run of punctuation). Each piece is then turned into bytes, each byte into a printable character, and merges learned on the Hugo corpus are applied in order of priority until no merge applies. What remains are the tokens.</p>
-  <div class="strip-label">the pieces of your text <span class="muted">(hover: number of tokens; the piece containing the selected token is outlined)</span></div>
-  <div id="pieces" class="strip"></div>
-  <div class="strip-label">the selected piece, step by step</div>
-  <div id="ladder" class="ladder"></div>
+  <h2>Inside the networks: how the prediction is computed</h2>
+  <p class="tour-invite"><button id="tour-start" class="tour-btn">▶ Guided tour</button> <span class="muted">fifteen short steps through the two architectures: embedding, convolution window, gate, residual stream, receptive field, logits; then the recurrent cell, its three gates, its memory, the steps, layer 2, the reach of the memory, the prediction.</span></p>
+  <p class="explain">Everything above comes out of vectors of a few hundred numbers, transformed step by step. This section follows the computation over the last sixteen tokens up to the selected one: one column per token, one small cell per vector (one pixel per coordinate, colour for the value). Press play, or step through it: the CNN slides a window of three positions along the text, one layer after the other; the LSTM applies one and the same cell at every token, handing its memory on to the next step. Click any cell to see the actual numbers it was computed from.</p>
+  <div class="legend">colour scale, per cell: <span class="sw" style="background:#2166ac"></span> most negative &nbsp; <span class="sw" style="background:#f7f7f7"></span> zero &nbsp; <span class="sw" style="background:#b2182b"></span> most positive &nbsp; · &nbsp; gates (0 to 1): <span class="sw" style="background:#f7f7f7"></span> closed &nbsp; <span class="sw" style="background:#4d9221"></span> open</div>
 
   <h3>1. The embedding</h3>
   <p class="explain" id="emb-note"></p>
@@ -106,19 +100,25 @@
     <div><div class="strip-label">nearest tokens in the LSTM's embedding space</div><ol id="nn-lstm" class="toplist"></ol></div>
   </div>
 
-  <div class="two-columns">
-    <div class="panel">
-      <h3>2a. Through the CNN: the residual stream</h3>
-      <p class="explain">The stream starts as the embedding. Each layer reads the last three positions of the stream, computes a content <em>u</em> and a gate σ(<em>g</em>), and adds <em>u ⊙ σ(g)</em> to the stream. Watch how little a layer changes the stream, and where. After the last layer, LayerNorm rescales the stream into <em>z</em>, whose dot products with the 8,000 embeddings are the logits.</p>
-      <div id="cnn-inside" class="strips"></div>
-    </div>
-    <div class="panel">
-      <h3>2b. Through the LSTM: memory and gates</h3>
-      <p class="explain">Each layer receives an input <em>x</em> (the embedding for layer 1, the output of layer 1 for layer 2) and its own previous output <em>h<sub>t−1</sub></em> and memory <em>c<sub>t−1</sub></em>. From <em>x</em> and <em>h<sub>t−1</sub></em> it computes the candidate and the three gates, then updates the memory and reads the output. The projection <em>z</em> of the last output is what meets the embeddings.</p>
-      <div id="lstm-inside" class="strips"></div>
-    </div>
+  <h3>2a. The CNN: a window of three that slides along the text</h3>
+  <p class="explain">Each layer reads the stream at three consecutive positions (<em>t−2, t−1, t</em>) and writes a new value at position <em>t</em>, added to the old one. After four layers a position has seen nine tokens, and nothing beyond. No position waits for another: a layer can be computed at all positions at once, which is why the CNN is fast. While stepping: the dashed bracket is the window being read, the solid frame the cell being written, and the light orange cells are all those that have contributed to it, layer after layer.</p>
+  <div class="toolbar" id="cnn-controls"></div>
+  <svg id="cnn-flow" class="flow"></svg>
+  <div class="strip-label">the numbers of the current step <span class="muted">(hover a cell to read a coordinate)</span></div>
+  <div id="cnn-step" class="strips"></div>
+
+  <h3>2b. The LSTM: one cell, applied at every token, passing its memory along</h3>
+  <p class="explain">The same weights are applied at every step. At token <em>t</em>, each layer receives the input of the moment (the embedding for layer 1, the output of layer 1 for layer 2) together with its own previous output <em>h</em> and memory <em>c</em>; from them it computes three gates (<em>f</em>: how much of the memory to keep, <em>i</em>: how much of the candidate to write, <em>o</em>: how much of the memory to show), updates the memory and emits the output. Position <em>t</em> cannot start before position <em>t−1</em> is finished: the steps are sequential. Anything from far back can reach the prediction, but only by surviving every forget gate in between; the last row shows how much of the memory as it was after each step is still present at the selected token.</p>
+  <div class="toolbar" id="lstm-controls"></div>
+  <svg id="lstm-flow" class="flow"></svg>
+  <div class="two-columns cellrow">
+    <div><div class="strip-label">inside one box: the cell of layer 2 at the current step, wired as in Christopher Olah's <em>Understanding LSTM Networks</em></div><svg id="lstm-cell" class="cell"></svg></div>
+    <p class="explain">The memory line runs along the top, from <em>c<sub>t−1</sub></em> to <em>c<sub>t</sub></em>: the forget gate multiplies it, the input gate lets a share of the candidate in, and the sum is the new memory, handed unchanged to the next step. The output gate reads the memory through a tanh, and what comes out is <em>h<sub>t</sub></em>: it goes to the next step and up to the next layer. The three gates and the candidate are all computed from the same two vectors, <em>x<sub>t</sub></em> and <em>h<sub>t−1</sub></em>, each with its own weights. The gates are coloured by their mean over the 512 slots at the current step: a forget gate near 1 keeps the memory, near 0 wipes it.</p>
   </div>
-  <h3>3. The LSTM's memory over time</h3>
+  <div class="strip-label">the numbers of the current step, layer 1 and layer 2 <span class="muted">(hover a cell to read a coordinate)</span></div>
+  <div id="lstm-step" class="two-columns"></div>
+
+  <h3>3. The LSTM's memory over the whole text</h3>
   <p class="explain">The twelve memory slots of layer 2 with the largest values at the selected token, followed across the whole text. A flat line is a slot holding on to something; a jump is a write; a decay towards zero is the forget gate at work.</p>
   <svg id="memory-traj"></svg>
   <h3>4. From <em>z</em> to the distribution</h3>
@@ -128,6 +128,12 @@
 <footer>
   <p>Models, tokenizer and code from the course repository <a href="https://github.com/JeremieJakubowicz/xhec-advanced-ai-2026">xhec-advanced-ai-2026</a>. Both networks were trained for fifteen minutes on the Hugo corpus with the notebooks of session 2; the site reimplements their forward pass in plain JavaScript.</p>
 </footer>
+
+<aside id="tour" hidden>
+  <div class="tour-head"><b id="tour-title"></b><button id="tour-close" title="close the tour">×</button></div>
+  <p id="tour-text"></p>
+  <div class="tour-nav"><button id="tour-prev">‹</button><span id="tour-pos"></span><button id="tour-next">›</button></div>
+</aside>
 
 <script type="module" src="app.js"></script>
 </body>

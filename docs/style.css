@@ -46,7 +46,7 @@ textarea { width: 100%; font: 16px/1.45 Georgia, "Times New Roman", serif; paddi
 footer { margin-top: 40px; font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 12px; }
 a { color: inherit; }
 
-/* ---- inside the networks */
+/* ---- inside the networks: strips of numbers */
 .strips { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .vrow { display: grid; grid-template-columns: 150px 1fr 132px; gap: 10px; align-items: center; }
 .vrow .vname { font-size: 12.5px; color: var(--ink); text-align: right; line-height: 1.25; }
@@ -57,19 +57,70 @@ a { color: inherit; }
 .vsep { border-top: 1px dashed var(--line); margin: 6px 0 2px; padding-top: 6px; font-size: 12px; color: var(--muted); }
 .vop { font-size: 12px; color: var(--muted); margin: -2px 0 -2px 160px; }
 #hover-readout { position: fixed; pointer-events: none; background: #222; color: #fff; font: 11px/1.3 ui-monospace, Menlo, Consolas, monospace; padding: 3px 6px; border-radius: 3px; display: none; z-index: 10; }
-
+.lens { font: 11.5px/1.4 ui-monospace, Menlo, Consolas, monospace; color: var(--muted); margin: -4px 0 2px 160px; }
+.lens b { color: var(--ink); font-weight: 600; }
+#lstm-step { margin-top: 4px; }
+#lstm-step .strips.wide { grid-column: 1 / -1; }
 #memory-traj { width: 100%; height: auto; display: block; }
 #memory-traj text { font-size: 11px; }
 .chip.inf { border-color: transparent; }
-.lens { font: 11.5px/1.4 ui-monospace, Menlo, Consolas, monospace; color: var(--muted); margin: -4px 0 2px 160px; }
-.lens b { color: var(--ink); font-weight: 600; }
-
-.chip.piece { background: #fff; }
-.chip.piece.selected { outline: 2px solid var(--accent); }
-.ladder { font: 12.5px/1.7 ui-monospace, Menlo, Consolas, monospace; margin: 4px 0 8px; }
-.ladder .lrow { display: grid; grid-template-columns: 170px 1fr; gap: 10px; align-items: baseline; }
-.ladder .lname { color: var(--muted); text-align: right; font-size: 12px; }
-.ladder .sym { display: inline-block; padding: 0 5px; margin: 1px 2px; border: 1px solid var(--line); border-radius: 3px; background: #fff; }
-.ladder .sym.merged { background: #fde0c5; border-color: #fdae6b; }
 .map { width: 100%; height: auto; display: block; border: 1px solid var(--line); background: #fff; }
 .map text { font-size: 10px; pointer-events: none; }
+
+/* ---- inside the networks: the step-by-step diagrams */
+.toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; }
+.toolbar button { font: 12.5px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; padding: 3px 9px; border: 1px solid var(--line); border-radius: 4px; background: #fff; cursor: pointer; color: var(--ink); }
+.toolbar button:hover { background: #f2f2f2; }
+.toolbar .step-status { font-size: 12.5px; color: var(--muted); margin-left: 6px; }
+.flow { width: 100%; height: auto; display: block; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.flow image { image-rendering: pixelated; }
+.flow .rowlab { font-size: 11px; fill: #444; }
+.flow .sublab { font-size: 9.5px; fill: var(--muted); }
+.flow .toklab { font: 11px ui-monospace, Menlo, Consolas, monospace; fill: #333; }
+.flow .toklab.sel { fill: var(--accent); font-weight: 700; }
+.flow .predlab { font: 10.5px ui-monospace, Menlo, Consolas, monospace; fill: #444; }
+.flow .flowline { stroke: #b5b5b5; stroke-width: 1; opacity: .55; }
+.flow .flowline.current { stroke: var(--accent); stroke-width: 2.2; opacity: 1; }
+.flow .flowline.future { opacity: .08; }
+.flow .cellframe { fill: none; stroke: #c9c9c9; }
+.flow .box { fill: #fff; stroke: #c9c9c9; }
+.flow .box.carried { stroke-dasharray: 3,3; }
+.flow .bracket { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5,3; }
+.flow .target { fill: none; stroke: var(--accent); stroke-width: 2.5; }
+.flow .cone { fill: #fde0c5; opacity: .85; }
+.flow .arrow { fill: none; stroke: #999; stroke-width: 1.5; }
+.flow .arrow.mem { stroke: var(--accent2); stroke-width: 3; }
+.flow .arrow.current { stroke: var(--accent); }
+.flow .arrow.future { opacity: .12; }
+.flow .meterbg { fill: #ececec; }
+.flow .gl { font: 8.5px ui-monospace, Menlo, Consolas, monospace; fill: #666; }
+.flow .survtxt { font: 9px ui-monospace, Menlo, Consolas, monospace; }
+
+/* ---- the guided tour */
+.tour-invite { font-size: 13px; margin: 0 0 10px; max-width: 900px; }
+.tour-btn { font: 600 13px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; padding: 5px 12px; border: 1px solid var(--accent); border-radius: 5px; background: var(--accent); color: #fff; cursor: pointer; }
+.tour-btn:hover { background: #b84f02; }
+#tour { position: fixed; right: 16px; bottom: 16px; width: 400px; max-width: calc(100vw - 32px); background: #fff; border: 1px solid #ccc; border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 14px 16px 12px; z-index: 20; font-size: 13.5px; line-height: 1.45; }
+#tour[hidden] { display: none; }
+.tour-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 15px; }
+.tour-head button { border: none; background: none; font-size: 20px; line-height: 1; cursor: pointer; color: var(--muted); padding: 0 2px; }
+#tour p { margin: 8px 0 10px; color: #333; }
+.tour-nav { display: flex; justify-content: space-between; align-items: center; }
+.tour-nav button { font: 14px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; padding: 3px 14px; border: 1px solid var(--line); border-radius: 4px; background: #fff; cursor: pointer; }
+.tour-nav button:disabled { opacity: .35; cursor: default; }
+.tour-nav span { color: var(--muted); font-size: 12.5px; }
+
+/* ---- one LSTM cell, wired */
+.cellrow { margin-top: 10px; align-items: center; }
+.cell { width: 100%; height: auto; display: block; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.cell .wire { fill: none; stroke: #666; stroke-width: 1.4; }
+.cell .wire.mem { stroke: var(--accent2); stroke-width: 3; }
+.cell .wire.bus { stroke: #999; stroke-width: 2; }
+.cell .node { fill: #fff; stroke: #444; stroke-width: 1.2; }
+.cell .dot { fill: #666; }
+.cell .dot.mem { fill: var(--accent2); }
+.cell .oplab { font-size: 12px; fill: #222; }
+.cell .gatelab { font-size: 11px; }
+.cell .gateval { font: 9px ui-monospace, Menlo, Consolas, monospace; }
+.cell .lab { font-size: 12px; fill: #333; font-style: italic; }
+.cell .eq { font-size: 10.5px; fill: var(--muted); }
