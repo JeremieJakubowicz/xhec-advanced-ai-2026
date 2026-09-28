@@ -462,7 +462,7 @@ function renderCNNStep(m, l, t) {
   }
 }
 
-// one filter of a layer: its stencil of 3 × d weights (one row of W₂, W₁, W₀) and its response at every position of the window
+// one filter of a layer: its stencil of 3 × d weights, one row of each of W₂, W₁, W₀
 function filterBlock(c, m, l, t) {
   if (!cnnWeights) return;
   const F = m.flow, d = m.inside.embedding.length, Lr = F.cnn.layers[l - 1], Wl = cnnWeights[l - 1], p0 = F.p0, p = m.position;
@@ -477,36 +477,6 @@ function filterBlock(c, m, l, t) {
     matrixRow(c, wName(j), `${2 * d} filters × ${d}: rows 0 to ${d - 1} content, ${d} to ${2 * d - 1} gates`, cnnThumb(l - 1, 2 - j, d), i, [d], "content above the line, gates below");
     stripRow(c, `${wName(j)}[${i}, ·]`, `row ${i}: its weights on the vector ${j ? `${j} back` : "at t"}`, Wl.Wk[2 - j].subarray(i * d, (i + 1) * d));
   }
-  opRow(c, `u${subDigits(i)}(t) = b[${i}] + Σ<sub>j</sub> ${wName(2).replace("₂", "ⱼ")}[${i}, ·] · h⁽${l - 1}⁾(t−j) = ${fmt(u[i])} at this step, with bias ${fmt(Wl.b[i])}; its gate σ(g${subDigits(i)}) = ${g[i].toFixed(2)}, computed by filter ${d + i} of the same layer`);
-  // the response along the window, its gate and their product: what the layer actually writes at every position
-  const n = p - p0 + 1, W = 1120, left = 200, cw = Math.min(96, (W - left - 14) / n), bw = cw - 10, rowH = 46, amp = 17;
-  const vals = d3.range(p0, p + 1).map(s => { const uu = Lr.u[s * d + i], gg = Lr.gate[s * d + i]; return { s, u: uu, g: gg, w: uu * gg }; });
-  const maxU = Math.max(1e-6, ...vals.map(v => Math.abs(v.u))), maxW = Math.max(1e-6, ...vals.map(v => Math.abs(v.w)));
-  const rows = [
-    { key: "u", label: `u${subDigits(i)}(t): the filter's response`, sub: `up positive, down negative, largest ${fmt(maxU)}`, max: maxU, signed: true },
-    { key: "g", label: `σ(g${subDigits(i)})(t): its gate`, sub: "0 (closed) to 1 (open)", max: 1, signed: false },
-    { key: "w", label: "u ⊙ σ(g): what is written", sub: `to coordinate ${i} of the stream, largest ${fmt(maxW)}`, max: maxW, signed: true },
-  ];
-  const Hh = 24 + rows.length * rowH + 4;
-  const svg = d3.create("svg").attr("class", "flow fmap").attr("viewBox", `0 0 ${W} ${Hh}`);
-  const L = F.cnn.layers.length, feed0 = Math.max(p0, t - 2 * (L - l));            // the responses that reach the prediction at t through the layers above
-  for (let s2 = feed0; s2 <= t; s2++) svg.append("rect").attr("class", "cone").attr("opacity", s2 === t ? .85 : .35).attr("x", left + (s2 - p0) * cw + 2).attr("y", 2).attr("width", cw - 4).attr("height", Hh - 4).attr("rx", 4);
-  vals.forEach(v => svg.append("text").attr("class", "toklab" + (v.s === t ? " sel" : "")).attr("x", left + (v.s - p0) * cw + 5 + bw / 2).attr("y", 15).attr("text-anchor", "middle").text(clip(show(m.tokens[v.s].text), bw)));
-  rows.forEach((r, k) => {
-    const top = 24 + k * rowH, y0 = r.signed ? top + rowH / 2 : top + rowH - 6, scale = (r.signed ? amp : rowH - 14) / r.max;
-    svg.append("text").attr("class", "rowlab").attr("x", left - 8).attr("y", top + 18).attr("text-anchor", "end").text(r.label);
-    svg.append("text").attr("class", "sublab").attr("x", left - 8).attr("y", top + 30).attr("text-anchor", "end").text(r.sub);
-    svg.append("line").attr("x1", left).attr("x2", W - 14).attr("y1", y0).attr("y2", y0).attr("stroke", "#bbb");
-    const g = svg.selectAll(null).data(vals).join("g").attr("transform", v => `translate(${left + (v.s - p0) * cw + 5},0)`);
-    g.append("rect").attr("x", 0).attr("width", bw).attr("y", v => v[r.key] >= 0 ? y0 - Math.abs(v[r.key]) * scale : y0).attr("height", v => Math.abs(v[r.key]) * scale)
-      .attr("fill", v => r.key === "g" ? "#1b9e77" : v[r.key] >= 0 ? "#b2182b" : "#2166ac").attr("opacity", .85);
-    g.append("title").text(v => `token ${v.s + 1} (${show(m.tokens[v.s].text)}): ${r.key === "u" ? "response" : r.key === "g" ? "gate" : "written"} ${fmt(v[r.key])}`);
-  });
-  c.appendChild(svg.node());
-  const cap = document.createElement("p"); cap.className = "explain fmap-caption";
-  const span = 1 + 2 * l, feeders = t - feed0 + 1;
-  cap.textContent = `One column per token of the window: the same filter applied at each position. Its response at a position depends on that token and the ${span - 1} before it (its receptive field of ${span} tokens at layer ${l}, reaching before the window for the first columns). Top: the number the filter computes there (its feature map). Middle: the gate of the same coordinate, computed by filter ${d + i}. Bottom: their product, what the layer actually adds to coordinate ${i} of the stream at that position; a strong response behind a closed gate changes nothing. Only the highlighted column${feeders > 1 ? "s" : ""} (${feeders === 1 ? "the current step" : `the last ${feeders}`}) feed${feeders > 1 ? "" : "s"} the prediction at the selected token through the layers above; the others feed other predictions. The default filter is the one whose product is largest at the current step.`;
-  c.appendChild(cap);
 }
 
 // ---------------------------------------------------------------- the LSTM: one cell applied at every token, passing (h, c) along
