@@ -126,3 +126,13 @@ a { color: inherit; }
 .cell .gateval { font: 9px ui-monospace, Menlo, Consolas, monospace; }
 .cell .lab { font-size: 12px; fill: #333; font-style: italic; }
 .cell .eq { font-size: 10.5px; fill: var(--muted); }
+
+/* ---- zoom on one filter */
+.filterhead input { width: 62px; font: 12px ui-monospace, Menlo, Consolas, monospace; padding: 1px 4px; border: 1px solid var(--line); border-radius: 3px; }
+.fmap { margin: 4px 0 2px; }
+
+/* ---- vectors are strips, matrices are blocks */
+.mrow { align-items: start; }
+.mwrap canvas { width: 100%; max-width: 420px; height: 72px; display: block; border: 1px solid #888; image-rendering: pixelated; }
+.mglyph rect { fill: #fff; stroke: #666; stroke-width: 1; }
+.mglyph line { stroke: #666; stroke-width: .6; }

@@ -7,7 +7,8 @@ const show = s => s.replace(/\n/g, "⏎").replace(/ /g, "␣");
 const surpriseColor = d3.scaleSequential(d3.interpolateBlues).domain([0, 12]).clamp(true);
 
 const worker = new Worker("worker.js", { type: "module" });
-let ready = false, pending = null, position = null, last = null, receptiveField = 9;
+let ready = false, pending = null, position = null, last = null, receptiveField = 9, cnnWeights = null, thumbs = null;
+const filterChoice = {};                                                          // per layer: the filter the reader chose to look at (undefined: the one that writes most)
 
 function request() {
   if (!ready) { pending = true; return; }
@@ -21,7 +22,7 @@ worker.onmessage = e => {
   const m = e.data;
   if (m.type === "status") { $("status").textContent = m.text; return; }
   if (m.type === "error") { $("status").textContent = "error: " + m.text; return; }
-  if (m.type === "ready") { ready = true; receptiveField = m.receptiveField; $("rf").textContent = m.receptiveField; request(); return; }
+  if (m.type === "ready") { ready = true; receptiveField = m.receptiveField; cnnWeights = m.cnnWeights || null; thumbs = m.thumbs || null; $("rf").textContent = m.receptiveField; request(); return; }
   if (m.type === "result") {
     last = m; position = m.position;
     $("status").textContent = m.T ? `${m.T} tokens${m.truncated ? " (text cut at 64 tokens)" : ""}, prediction after token ${m.position + 1}` : "type something";
@@ -152,6 +153,7 @@ const rowOf = (arr, width, t) => arr.subarray(t * width, (t + 1) * width);      
 const norm = vec => { let s = 0; for (const v of vec) s += v * v; return Math.sqrt(s); };
 const meanOf = vec => { let s = 0; for (const v of vec) s += v; return s / vec.length; };
 const clip = (s, width) => { const n = Math.max(2, Math.floor(width / 6.7)); return s.length > n ? s.slice(0, n - 1) + "…" : s; };
+const subDigits = n => String(n).replace(/\d/g, ch => "₀₁₂₃₄₅₆₇₈₉"[+ch]);
 
 function paintVector(ctx, vec, gate) {
   const img = ctx.createImageData(vec.length, 1);
@@ -182,6 +184,38 @@ function stripRow(container, name, sub, vec, { gate = false, tall = false } = {}
   canvas.onmouseleave = () => { readout.style.display = "none"; };
   row.append(label, canvas, stat); container.appendChild(row);
 }
+// a matrix as a block, not to scale: a thumbnail (rows × cols sampled to R × C), one row marked in orange, optional band separators
+function thumbOf(get, rows, cols, R = 96, C = 160) {
+  R = Math.min(R, rows); C = Math.min(C, cols);
+  const data = new Float32Array(R * C);
+  for (let y = 0; y < R; y++) { const r = Math.floor(y * rows / R); for (let x = 0; x < C; x++) data[y * C + x] = get(r, Math.floor(x * cols / C)); }
+  return { rows, cols, R, C, data };
+}
+function matrixRow(container, name, sub, th, highlight = null, bands = null, bandNote = "") {
+  const row = document.createElement("div"); row.className = "vrow mrow";
+  const label = document.createElement("div"); label.className = "vname"; label.innerHTML = `${name}<small>${sub}</small>`;
+  const wrap = document.createElement("div"); wrap.className = "mwrap";
+  const canvas = document.createElement("canvas"); canvas.width = th.C; canvas.height = th.R;
+  const ctx = canvas.getContext("2d"), img = ctx.createImageData(th.C, th.R);
+  let maxAbs = 1e-6; for (const v of th.data) maxAbs = Math.max(maxAbs, Math.abs(v));
+  for (let k = 0; k < th.data.length; k++) { const rgb = d3.rgb(diverging(th.data[k] / maxAbs)), o = 4 * k; img.data[o] = rgb.r; img.data[o + 1] = rgb.g; img.data[o + 2] = rgb.b; img.data[o + 3] = 255; }
+  ctx.putImageData(img, 0, 0);
+  if (bands) { ctx.fillStyle = "#222"; for (const b of bands) ctx.fillRect(0, Math.floor(b * th.R / th.rows), th.C, 1); }
+  if (highlight !== null) { ctx.fillStyle = "#d95f02"; ctx.fillRect(0, Math.min(th.R - 2, Math.floor(highlight * th.R / th.rows)), th.C, 2); }
+  wrap.appendChild(canvas);
+  const stat = document.createElement("div"); stat.className = "vstat"; stat.innerHTML = `matrix ${th.rows.toLocaleString("en")} × ${th.cols}` + (highlight !== null ? `<br>row ${highlight} marked` : "") + (bandNote ? `<br>${bandNote}` : "");
+  row.append(label, wrap, stat); container.appendChild(row);
+}
+function matrixGlyph(g, x, y, w = 14, h = 10) {                                  // a small grid: "a matrix multiplies here"
+  const k = g.append("g").attr("class", "mglyph").attr("transform", `translate(${x},${y})`);
+  k.append("rect").attr("width", w).attr("height", h);
+  for (let i = 1; i < 3; i++) k.append("line").attr("x1", 0).attr("x2", w).attr("y1", i * h / 3).attr("y2", i * h / 3);
+  for (let i = 1; i < 4; i++) k.append("line").attr("x1", i * w / 4).attr("x2", i * w / 4).attr("y1", 0).attr("y2", h);
+  return k;
+}
+const wThumbs = {};                                                              // the CNN's weight matrices as blocks, computed once per (layer, offset)
+function cnnThumb(l, kk, d) { const key = `${l}-${kk}`; return wThumbs[key] || (wThumbs[key] = thumbOf((r, c) => cnnWeights[l].Wk[kk][r * d + c], 2 * d, d)); }
+
 function lensRow(container, top, label = "if it stopped here:") {           // "logit lens": what the network would predict from this vector
   const el = document.createElement("div"); el.className = "lens";
   el.innerHTML = label + " " + (top ? top.map(r => `<b>${show(r.text).replace(/</g, "&lt;")}</b> ${(100 * r.prob).toFixed(0)} %`).join(" · ") : "<i>computing…</i>");
@@ -196,10 +230,12 @@ function listNeighbours(id, rows) {
 
 function renderInside(m) {
   const I = m.inside, d = I.embedding.length;
-  $("emb-note").textContent = `Selected token: ${JSON.stringify(I.text)} (id ${I.tokenId}). Each model has its own embedding table, so the same token has two vectors of ${d} numbers, learned independently by the two networks.`;
+  $("emb-note").textContent = `Selected token: ${JSON.stringify(I.text)} (id ${I.tokenId}). Each model has its own embedding table E, a matrix of 8,000 rows (drawn as a block, not to scale); the embedding of the token is row ${I.tokenId} of it, a vector of ${d} numbers (drawn as a strip). The same token thus has two vectors, learned independently by the two networks.`;
   const emb = $("emb-strips"); emb.replaceChildren();
-  stripRow(emb, "CNN embedding", `E[${I.tokenId}], ${d}`, I.embedding);
-  stripRow(emb, "LSTM embedding", `E[${I.tokenId}], ${d}`, I.lstmEmbedding);
+  if (thumbs) matrixRow(emb, "E, the CNN's table", "8,000 tokens × 256", thumbs.E.cnn, I.tokenId);
+  stripRow(emb, "CNN embedding", `row ${I.tokenId} of E, ${d}`, I.embedding);
+  if (thumbs) matrixRow(emb, "E, the LSTM's table", "8,000 tokens × 256", thumbs.E.lstm, I.tokenId);
+  stripRow(emb, "LSTM embedding", `row ${I.tokenId} of E, ${d}`, I.lstmEmbedding);
   listNeighbours("nn-cnn", I.neighbours.cnn); listNeighbours("nn-lstm", I.neighbours.lstm);
   const top = (model, name) => `${name}: z · E[${JSON.stringify(model.top[0].text)}] is the largest of the 8,000 dot products, so ${JSON.stringify(model.top[0].text)} gets ${(100 * model.top[0].prob).toFixed(1)} %`;
   $("logit-note").textContent = `For both models the 8,000 logits are the dot products of z with the 8,000 embedding vectors (the same table used at the input), and the softmax turns them into the distributions shown at the top. ${top(m.cnn, "CNN")}; ${top(m.lstm, "LSTM")}.`;
@@ -302,8 +338,9 @@ function renderCNNFlow(m) {
   }
   const lineSel = gLines.selectAll("line").data(lines).join("line").attr("class", "flowline").attr("x1", q => q.x1).attr("y1", q => q.y1).attr("x2", q => q.x2).attr("y2", q => q.y2);
   lineSel.append("title").text(q => `${wName(q.j, q.l)} · h⁽${q.l - 1}⁾ at token ${q.s + 1}: one of the three terms of layer ${q.l} at token ${q.t + 1}`);
+  for (let l = 1; l <= L; l++) matrixGlyph(gLines, 6, rowY(l) - 19);
   for (let l = 1; l <= L; l++) gLines.append("text").attr("class", "sublab").attr("x", left - 8).attr("y", rowY(l) - 11).attr("text-anchor", "end").text(`edges: ${wName(2, l)} ${wName(1, l)} ${wName(0, l)}`)
-    .append("title").text(`layer ${l} owns three matrices of 256 × 512 weights, one per offset (t−2, t−1, t), applied identically at every position`);
+    .append("title").text(`layer ${l} has 512 filters (256 for the content, 256 for the gate), each a stencil of 3 × 256 weights applied identically at every position; W_j stacks what every filter applies to the vector j positions back`);
   const gCone = part("cone");
   const cellSel = [];
   for (let r = 0; r <= L; r++) {
@@ -338,6 +375,7 @@ function renderCNNFlow(m) {
   const gMark = part("marks");
   const bracket = gMark.append("rect").attr("class", "bracket").attr("rx", 4).attr("height", cellH + 8);
   const wLabels = [0, 1, 2].map(j => gMark.append("text").attr("class", "wlab").attr("text-anchor", "middle"));   // the names of the three active edges
+  const wGlyphs = [0, 1, 2].map(() => matrixGlyph(gMark, 0, 0));
   const target = gMark.append("rect").attr("class", "target").attr("rx", 3).attr("width", cellW + 6).attr("height", cellH + 6);
   const N = (L + 1) * n;                                                            // steps: layer-major, the order in which a convolution is computed
   const onStep = i => {
@@ -351,8 +389,11 @@ function renderCNNFlow(m) {
     else bracket.style("display", "none");
     wLabels.forEach((lab, j) => {                                                   // W_j on the edge from t−j, staggered so that they do not overlap
       const s = t - j, on = l >= 1 && s >= 0;
-      lab.style("display", on ? null : "none");
-      if (on) lab.attr("x", (x(s) + x(t)) / 2 + cellW / 2).attr("y", (rowY(l - 1) + cellH + rowY(l)) / 2 + 4 + (1 - j) * 7).text(wName(j, l));
+      lab.style("display", on ? null : "none"); wGlyphs[j].style("display", on ? null : "none");
+      if (on) {
+        const X = (x(s) + x(t)) / 2 + cellW / 2, Y = (rowY(l - 1) + cellH + rowY(l)) / 2 + 4 + (1 - j) * 7;
+        lab.attr("x", X).attr("y", Y).text(wName(j, l)); wGlyphs[j].attr("transform", `translate(${X + 16},${Y - 9})`);
+      }
     });
     target.attr("x", x(t) - 3).attr("y", rowY(l) - 3);
     gZ.attr("opacity", l === L && t === p ? 1 : .15);
@@ -375,7 +416,8 @@ function renderCNNStep(m, l, t) {
   const streams = [...F.cnn.layers.map(r => r.hIn), F.cnn.hFinal];
   if (l === 0) {
     sepRow(c, `layer 0: the embedding of ${tokAt(t)}, row ${m.tokens[t].id} of the table E`);
-    stripRow(c, "h⁽⁰⁾", `E[${m.tokens[t].id}], ${d}`, rowOf(streams[0], d, t));
+    if (thumbs) matrixRow(c, "E", "8,000 × 256", thumbs.E.cnn, m.tokens[t].id);
+    stripRow(c, "h⁽⁰⁾", `row ${m.tokens[t].id} of E, ${d}`, rowOf(streams[0], d, t));
     lensRow(c, F.cnn.lens[0][t - F.p0]);
     return;
   }
@@ -394,11 +436,45 @@ function renderCNNStep(m, l, t) {
   stripRow(c, "written u ⊙ σ(g)", "what the layer adds", u.map((v, i) => v * g[i]));
   stripRow(c, `h⁽${l}⁾ at t`, `h⁽${l - 1}⁾ at t + written`, rowOf(streams[l], d, t));
   lensRow(c, F.cnn.lens[l][t - F.p0]);
+  filterBlock(c, m, l, t);
   if (l === F.cnn.layers.length && t === m.position) {
     sepRow(c, "the last layer at the selected token: LayerNorm (centre, scale, re-weight each coordinate), then 8,000 dot products with the embeddings");
     stripRow(c, "z", `LayerNorm(h⁽${l}⁾), ${d}`, rowOf(F.cnn.z, d, t));
     lensRow(c, F.cnn.lens[l][t - F.p0], "prediction:");
   }
+}
+
+// one filter of a layer: its stencil of 3 × d weights (one row of W₂, W₁, W₀) and its response at every position of the window
+function filterBlock(c, m, l, t) {
+  if (!cnnWeights) return;
+  const F = m.flow, d = m.inside.embedding.length, Lr = F.cnn.layers[l - 1], Wl = cnnWeights[l - 1], p0 = F.p0, p = m.position;
+  const u = rowOf(Lr.u, d, t), g = rowOf(Lr.gate, d, t);
+  let best = 0; for (let j = 1; j < d; j++) if (Math.abs(u[j] * g[j]) > Math.abs(u[best] * g[best])) best = j;
+  const i = filterChoice[l] ?? best, wName = j => `W${"₀₁₂"[j]}⁽${l}⁾`;
+  const head = document.createElement("div"); head.className = "vsep filterhead";
+  head.innerHTML = `zoom on one of the ${d} content filters of layer ${l}: filter <input type="number" min="0" max="${d - 1}" value="${i}"> <span class="muted">(${i === best ? "the one that writes most at this step" : `the one that writes most here is ${best}`}). A filter is a stencil of 3 × ${d} weights, one row of each matrix, applied at every position; the layer has ${d} of them for the content and ${d} more for the gates.</span>`;
+  head.querySelector("input").onchange = e => { filterChoice[l] = Math.max(0, Math.min(d - 1, Math.round(+e.target.value) || 0)); renderCNNStep(m, l, t); };
+  c.appendChild(head);
+  for (let j = 2; j >= 0; j--) {
+    matrixRow(c, wName(j), `${2 * d} filters × ${d}: rows 0 to ${d - 1} content, ${d} to ${2 * d - 1} gates`, cnnThumb(l - 1, 2 - j, d), i, [d], "line: content above, gates below");
+    stripRow(c, `${wName(j)}[${i}, ·]`, `row ${i}: its weights on the vector ${j ? `${j} back` : "at t"}`, Wl.Wk[2 - j].subarray(i * d, (i + 1) * d));
+  }
+  opRow(c, `u${subDigits(i)}(t) = b[${i}] + Σ<sub>j</sub> ${wName(2).replace("₂", "ⱼ")}[${i}, ·] · h⁽${l - 1}⁾(t−j) = ${fmt(u[i])} at this step, with bias ${fmt(Wl.b[i])}; its gate σ(g${subDigits(i)}) = ${g[i].toFixed(2)}, computed by filter ${d + i} of the same layer`);
+  // the response along the window: what the filter computed at every position (a feature map), and the gate that scaled it
+  const n = p - p0 + 1, W = 1120, left = 160, cw = Math.min(96, (W - left - 14) / n), bw = cw - 10, y0 = 56, amp = 24;
+  const vals = d3.range(p0, p + 1).map(s => ({ s, u: Lr.u[s * d + i], g: Lr.gate[s * d + i] }));
+  const maxAbs = Math.max(1e-6, ...vals.map(v => Math.abs(v.u)));
+  const svg = d3.create("svg").attr("class", "flow fmap").attr("viewBox", `0 0 ${W} 86`);
+  svg.append("text").attr("class", "rowlab").attr("x", left - 8).attr("y", 24).attr("text-anchor", "end").text(`gate σ(g${subDigits(i)})`);
+  svg.append("text").attr("class", "rowlab").attr("x", left - 8).attr("y", y0 + 4).attr("text-anchor", "end").text(`u${subDigits(i)} along the text`);
+  svg.append("line").attr("x1", left).attr("x2", W - 14).attr("y1", y0).attr("y2", y0).attr("stroke", "#bbb");
+  const gg = svg.selectAll("g").data(vals).join("g").attr("transform", v => `translate(${left + (v.s - p0) * cw + 5},0)`);
+  gg.append("text").attr("class", v => "toklab" + (v.s === t ? " sel" : "")).attr("x", bw / 2).attr("y", 10).attr("text-anchor", "middle").text(v => clip(show(m.tokens[v.s].text), bw));
+  gg.append("rect").attr("x", 0).attr("y", 15).attr("width", bw).attr("height", 11).attr("fill", v => gateScale(v.g)).attr("stroke", "#ccc");
+  gg.append("rect").attr("x", 0).attr("y", v => v.u >= 0 ? y0 - Math.abs(v.u) / maxAbs * amp : y0).attr("width", bw).attr("height", v => Math.abs(v.u) / maxAbs * amp)
+    .attr("fill", v => diverging(v.u / maxAbs)).attr("stroke", v => v.s === t ? "#d95f02" : "none").attr("stroke-width", 2);
+  gg.append("title").text(v => `token ${v.s + 1} (${show(m.tokens[v.s].text)}): u = ${fmt(v.u)}, gate ${v.g.toFixed(2)}`);
+  c.appendChild(svg.node());
 }
 
 // ---------------------------------------------------------------- the LSTM: one cell applied at every token, passing (h, c) along
@@ -500,7 +576,11 @@ function renderLSTMStep(m, t) {
     stripRow(s, "input x", l === 0 ? `the embedding of the token, ${Lr.nin}` : `output of layer 1 at this step, ${Lr.nin}`, rowOf(Lr.x, Lr.nin, t));
     stripRow(s, "previous output h<sub>t−1</sub>", t > 0 ? `${H}` : "start of the text: zeros", t > 0 ? rowOf(Lr.h, H, t - 1) : new Float32Array(H));
     stripRow(s, "previous memory c<sub>t−1</sub>", t > 0 ? `${H}` : "start of the text: zeros", t > 0 ? rowOf(Lr.cell, H, t - 1) : new Float32Array(H));
-    opRow(s, "from x and h<sub>t−1</sub>, four vectors:");
+    if (thumbs) {
+      matrixRow(s, "W<sub>i</sub>, W<sub>f</sub>, W<sub>c̃</sub>, W<sub>o</sub> stacked", `on x, 4 × ${H} rows × ${Lr.nin}`, thumbs.lstm[l].ih, null, [H, 2 * H, 3 * H], "bands: i, f, c̃, o");
+      matrixRow(s, "U<sub>i</sub>, U<sub>f</sub>, U<sub>c̃</sub>, U<sub>o</sub> stacked", `on h<sub>t−1</sub>, 4 × ${H} rows × ${H}`, thumbs.lstm[l].hh, null, [H, 2 * H, 3 * H], "bands: i, f, c̃, o");
+    }
+    opRow(s, "v<sub>t</sub> = φ(W<sub>v</sub> x<sub>t</sub> + U<sub>v</sub> h<sub>t−1</sub> + b<sub>v</sub>) for v in {c̃, f, i, o}: four vectors, each from its own band of the two matrices:");
     stripRow(s, "candidate c̃", `tanh, ${H}`, rowOf(Lr.candidate, H, t));
     stripRow(s, "forget gate f", "keep how much of c<sub>t−1</sub>", rowOf(Lr.forget, H, t), { gate: true });
     stripRow(s, "input gate i", "write how much of c̃", rowOf(Lr.input, H, t), { gate: true });
@@ -542,7 +622,7 @@ function renderCell(m, t) {
   // gates and the candidate, all read from the same [x t, h t−1]
   gate(xF, gY, "σ", `f ${f.toFixed(2)}`, f); gate(xI, gY, "σ", `i ${i.toFixed(2)}`, i); gate(xC, gY, "tanh", "c̃", null); gate(xO, gY, "σ", `o ${o.toFixed(2)}`, o);
   wire([[46, hY], [xO, hY]], "wire bus"); label(40, hY - 2, "h t−1", "end"); label(40, hY + 12, "x t", "end");
-  for (const x of [xF, xI, xC, xO]) { dot(x, hY); wire([[x, hY], [x, gY + 16]]); }
+  for (const x of [xF, xI, xC, xO]) { dot(x, hY); wire([[x, hY], [x, gY + 16]]); matrixGlyph(svg, x - 7, 178).append("title").text("a weight matrix multiplies here: W on x, U on h"); }
   wire([[xF, gY - 16], [xF, cY + 14]]);                                           // f → ×
   wire([[xI, gY - 16], [xI, 100], [xAdd - 14, 100]]);                              // i → ×
   wire([[xC, gY - 16], [xC, 100], [xAdd + 14, 100]]);                              // c̃ → ×
@@ -572,7 +652,7 @@ const TOUR = [
     run: (m, q) => { focusAll(); goTo("tokens", q); } },
   { title: "The embedding", text: "Each id selects one row of the embedding table E: 256 learned numbers, the same wherever the token appears in the text. Nothing says what they mean; training moves them until tokens used in the same way end up close to each other. The maps show the geometry that came out of it.",
     run: (m, q) => { focus("cnn-flow", ["tokens", "emb"]); players.cnn.set(cnnStep(m, 0, m.position)); goTo("emb-strips", q); } },
-  { title: "One layer of the CNN reads three positions", text: "Layer 1, at token t, reads the stream at t−2, t−1 and t (the dashed bracket), each through its own matrix, W₂, W₁, W₀: the three edges. Their sum, plus a bias, gives a content u and a gate g. That is all a convolution is: three matrices, the same at every position. At the start of the text only the edges that have something to read exist.",
+  { title: "One layer of the CNN reads three positions", text: "Layer 1, at token t, reads the stream at t−2, t−1 and t (the dashed bracket), each through its own matrix, W₂, W₁, W₀: the three edges. Their sum, plus a bias, gives a content u and a gate g. Row i of the three matrices is one filter, a stencil of 3 × 256 weights; the layer has 512 of them working in parallel, and the panel below the diagram can zoom on any one. That is all a convolution is: the same filters at every position. At the start of the text only the edges that have something to read exist.",
     run: (m, q) => { focus("cnn-flow", ["tokens", "emb", "layer1", "lines", "marks"]); players.cnn.set(cnnStep(m, 1, m.position)); goTo("cnn-flow", q); } },
   { title: "The gate and the residual addition", text: "σ(g), between 0 and 1, decides how much of u gets written; the layer adds u ⊙ σ(g) to the stream instead of replacing it, so what the embedding said is still there underneath. Below the diagram: the actual numbers of this step, one strip per vector, and what the network would already predict from them.",
     run: (m, q) => { focus("cnn-flow", ["tokens", "emb", "layer1", "lines", "marks"]); players.cnn.set(cnnStep(m, 1, m.position)); goTo("cnn-step", q); } },

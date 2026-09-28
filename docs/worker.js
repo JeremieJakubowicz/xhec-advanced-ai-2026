@@ -47,7 +47,20 @@ async function init() {
   try { frequent = JSON.parse(new TextDecoder().decode(await fetchBuffer("models/frequent.json", "frequent"))); } catch (e) { frequent = []; }
   const ids = frequent.map(([id]) => id);
   if (ids.length) { pca.cnn = fitPCA(cnn.E, cnn.d, ids); pca.lstm = fitPCA(lstm.E, lstm.d, ids); }
-  postMessage({ type: "ready", receptiveField: cnn.receptiveField, hidden: lstm.hidden, maxTokens: MAX_TOKENS, window: WINDOW });
+  postMessage({ type: "ready", receptiveField: cnn.receptiveField, hidden: lstm.hidden, maxTokens: MAX_TOKENS, window: WINDOW,
+                cnnWeights: cnn.layers.map(L => ({ Wk: L.Wk, b: L.b })),         // the filters themselves (6 MB, once), so that the page can show any one of them
+                thumbs: {                                                        // the big matrices as blocks: the two embedding tables, the LSTM's stacked gate weights
+                  E: { cnn: thumb((r, c) => cnn.E[r * cnn.d + c], cnn.V, cnn.d), lstm: thumb((r, c) => lstm.E[r * lstm.d + c], lstm.V, lstm.d) },
+                  lstm: lstm.layers.map(L => ({ ih: thumb((r, c) => L.Wih[r * L.inp + c], 4 * L.hidden, L.inp), hh: thumb((r, c) => L.Whh[r * L.hidden + c], 4 * L.hidden, L.hidden) })),
+                } });
+}
+
+// a matrix as a small block: rows × cols sampled down to R × C values (not to scale), for the page to draw
+function thumb(get, rows, cols, R = 96, C = 160) {
+  R = Math.min(R, rows); C = Math.min(C, cols);
+  const data = new Float32Array(R * C);
+  for (let y = 0; y < R; y++) { const r = Math.floor(y * rows / R); for (let x = 0; x < C; x++) data[y * C + x] = get(r, Math.floor(x * cols / C)); }
+  return { rows, cols, R, C, data };
 }
 
 function meanRows(arr, T, H) {                     // (T x H) -> T means
