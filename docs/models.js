@@ -78,7 +78,7 @@ export class LocalCNN {
     for (let t = 0; t < T; t++) if (t !== blank) h.set(this.E.subarray(ids[t] * d, ids[t] * d + d), t * d);
     const gates = [], record = [];
     for (const { Wk, b, out, k } of this.layers) {
-      const a = new Float32Array(T * out), s = new Float32Array(T * d), u = new Float32Array(T * d), hIn = h.slice();
+      const a = new Float32Array(T * out), s = new Float32Array(T * d), u = new Float32Array(T * d), g = new Float32Array(T * d), hIn = h.slice();
       for (let t = 0; t < T; t++) {
         for (let o = 0; o < out; o++) {
           let acc = b[o];
@@ -87,9 +87,9 @@ export class LocalCNN {
         }
       }
       for (let t = 0; t < T; t++) for (let i = 0; i < d; i++) {          // h += u * sigmoid(g), u = first d channels, g = last d
-        const g = sigmoid(a[t * out + d + i]); s[t * d + i] = g; u[t * d + i] = a[t * out + i]; h[t * d + i] += a[t * out + i] * g;
+        const sg = sigmoid(a[t * out + d + i]); s[t * d + i] = sg; u[t * d + i] = a[t * out + i]; g[t * d + i] = a[t * out + d + i]; h[t * d + i] += a[t * out + i] * sg;
       }
-      gates.push(s); record.push({ hIn, u, gate: s });
+      gates.push(s); record.push({ hIn, u, g, gate: s });                     // a = (u; g) before the sigmoid, gate = sigma(g)
     }
     const hFinal = h.slice();
     for (let t = 0; t < T; t++) {                                           // LayerNorm over d, eps 1e-5

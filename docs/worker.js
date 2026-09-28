@@ -128,7 +128,7 @@ onmessage = e => {
   const lstmZ = []; for (let t = p0; t <= p; t++) lstmZ.push(lstm.projAt(l.state, t));
   const flow = {
     p0,
-    cnn: { layers: c.state.record.map(r => ({ hIn: r.hIn, u: r.u, gate: r.gate })), hFinal: c.state.hFinal, z: c.state.h, lens },
+    cnn: { layers: c.state.record.map(r => ({ hIn: r.hIn, u: r.u, g: r.g, gate: r.gate })), hFinal: c.state.hFinal, z: c.state.h, lens },
     lstm: { layers: l.state.record.map(r => ({ x: r.x, nin: r.nin, input: r.input, forget: r.forget, candidate: r.candidate, output: r.output, cell: r.cell, h: r.h })), z: lstmZ, top: l.tops.map(decode) },
   };
   postMessage({

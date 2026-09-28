@@ -169,12 +169,13 @@ function rasterURL(vec, gate = false) {              // a vector as a one-pixel-
   paintVector(cv.getContext("2d"), vec, gate); return cv.toDataURL();
 }
 
-function stripRow(container, name, sub, vec, { gate = false, tall = false } = {}) {
+function stripRow(container, name, sub, vec, { gate = false, tall = false, split = false } = {}) {
   const row = document.createElement("div"); row.className = "vrow";
   const label = document.createElement("div"); label.className = "vname"; label.innerHTML = `${name}<small>${sub}</small>`;
   const canvas = document.createElement("canvas"); canvas.width = vec.length; canvas.height = 1; if (tall) canvas.classList.add("tall");
   const stat = document.createElement("div"); stat.className = "vstat";
   const maxAbs = paintVector(canvas.getContext("2d"), vec, gate);
+  if (split) { const ctx = canvas.getContext("2d"); ctx.fillStyle = "#000"; ctx.fillRect(vec.length / 2 - 1, 0, 2, 1); }   // a mark at the middle: two halves with two roles
   stat.textContent = gate ? `mean ${meanOf(vec).toFixed(2)}` : `norm ${norm(vec).toFixed(2)}, max ${fmt(maxAbs)}`;
   canvas.onmousemove = e => {
     const i = Math.min(vec.length - 1, Math.floor(e.offsetX / canvas.clientWidth * vec.length));
@@ -429,9 +430,13 @@ function renderCNNStep(m, l, t) {
     if (s < 0) { opRow(c, `${wName(j)} has nothing to read: position t−${j} is before the start of the text`); continue; }
     stripRow(c, `${wName(j)} · h⁽${l - 1}⁾ at ${j ? `t−${j}` : "t"}`, tokAt(s), rowOf(streams[l - 1], d, s));
   }
-  opRow(c, `a = b⁽${l}⁾ + ${[2, 1, 0].filter(j => t - j >= 0).map(j => `${wName(j)} h${j ? `ₜ₋${"₀₁₂"[j]}` : "ₜ"}`).join(" + ")}, ${2 * d} numbers: the first ${d} are the content u, the last ${d} the gate g`);
-  const u = rowOf(Lr.u, d, t), g = rowOf(Lr.gate, d, t);
-  stripRow(c, "content u", `${d}`, u);
+  opRow(c, `each matrix has ${2 * d} rows: their sum with the bias is one vector of ${2 * d} numbers, a = b⁽${l}⁾ + ${[2, 1, 0].filter(j => t - j >= 0).map(j => `${wName(j)} h${j ? `ₜ₋${"₀₁₂"[j]}` : "ₜ"}`).join(" + ")}`);
+  const u = rowOf(Lr.u, d, t), graw = rowOf(Lr.g, d, t), g = rowOf(Lr.gate, d, t);
+  const a = new Float32Array(2 * d); a.set(u, 0); a.set(graw, d);
+  stripRow(c, "a", `${2 * d}, the mark is the middle`, a, { split: true });
+  opRow(c, `a is read as two halves, a = (u ; g), as in the notebook: rows 0 to ${d - 1} of the matrices compute u, rows ${d} to ${2 * d - 1} compute g`);
+  stripRow(c, "content u", `first half of a, ${d}`, u);
+  stripRow(c, "g", `second half of a, ${d}, before the sigmoid`, graw);
   stripRow(c, "gate σ(g)", `${d}, between 0 and 1`, g, { gate: true });
   stripRow(c, "written u ⊙ σ(g)", "what the layer adds", u.map((v, i) => v * g[i]));
   stripRow(c, `h⁽${l}⁾ at t`, `h⁽${l - 1}⁾ at t + written`, rowOf(streams[l], d, t));
@@ -653,7 +658,7 @@ const TOUR = [
     run: (m, q) => { focusAll(); goTo("tokens", q); } },
   { title: "The embedding", text: "Each id selects one row of the embedding table E: 256 learned numbers, the same wherever the token appears in the text. Nothing says what they mean; training moves them until tokens used in the same way end up close to each other. The maps show the geometry that came out of it.",
     run: (m, q) => { focus("cnn-flow", ["tokens", "emb"]); players.cnn.set(cnnStep(m, 0, m.position)); goTo("emb-strips", q); } },
-  { title: "One layer of the CNN reads three positions", text: "Layer 1, at token t, reads the stream at t−2, t−1 and t (the dashed bracket), each through its own matrix, W₂, W₁, W₀: the three edges. Their sum, plus a bias, gives a content u and a gate g. Row i of the three matrices is one filter, a stencil of 3 × 256 weights; the layer has 512 of them working in parallel, and the panel below the diagram can zoom on any one. That is all a convolution is: the same filters at every position. At the start of the text only the edges that have something to read exist.",
+  { title: "One layer of the CNN reads three positions", text: "Layer 1, at token t, reads the stream at t−2, t−1 and t (the dashed bracket), each through its own matrix, W₂, W₁, W₀: the three edges. Their sum, plus a bias, is one vector a of 512 numbers, read as two halves: the first 256 are the content u, the last 256 the gate g. Row i of the three matrices is one filter, a stencil of 3 × 256 weights; the layer has 512 of them working in parallel, and the panel below the diagram can zoom on any one. That is all a convolution is: the same filters at every position. At the start of the text only the edges that have something to read exist.",
     run: (m, q) => { focus("cnn-flow", ["tokens", "emb", "layer1", "lines", "marks"]); players.cnn.set(cnnStep(m, 1, m.position)); goTo("cnn-flow", q); } },
   { title: "The gate and the residual addition", text: "σ(g), between 0 and 1, decides how much of u gets written; the layer adds u ⊙ σ(g) to the stream instead of replacing it, so what the embedding said is still there underneath. Below the diagram: the actual numbers of this step, one strip per vector, and what the network would already predict from them.",
     run: (m, q) => { focus("cnn-flow", ["tokens", "emb", "layer1", "lines", "marks"]); players.cnn.set(cnnStep(m, 1, m.position)); goTo("cnn-step", q); } },
