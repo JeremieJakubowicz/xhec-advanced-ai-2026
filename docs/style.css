@@ -133,6 +133,7 @@ a { color: inherit; }
 
 /* ---- vectors are strips, matrices are blocks */
 .mrow { align-items: start; }
+.mrow .mstat { white-space: normal; line-height: 1.35; }
 .mwrap canvas { width: 100%; max-width: 420px; height: 72px; display: block; border: 1px solid #888; image-rendering: pixelated; }
 .mglyph rect { fill: #fff; stroke: #666; stroke-width: 1; }
 .mglyph line { stroke: #666; stroke-width: .6; }

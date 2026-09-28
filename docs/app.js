@@ -203,7 +203,7 @@ function matrixRow(container, name, sub, th, highlight = null, bands = null, ban
   if (bands) { ctx.fillStyle = "#222"; for (const b of bands) ctx.fillRect(0, Math.floor(b * th.R / th.rows), th.C, 1); }
   if (highlight !== null) { ctx.fillStyle = "#d95f02"; ctx.fillRect(0, Math.min(th.R - 2, Math.floor(highlight * th.R / th.rows)), th.C, 2); }
   wrap.appendChild(canvas);
-  const stat = document.createElement("div"); stat.className = "vstat"; stat.innerHTML = `matrix ${th.rows.toLocaleString("en")} × ${th.cols}` + (highlight !== null ? `<br>row ${highlight} marked` : "") + (bandNote ? `<br>${bandNote}` : "");
+  const stat = document.createElement("div"); stat.className = "vstat mstat"; stat.innerHTML = `matrix ${th.rows.toLocaleString("en")} × ${th.cols}` + (highlight !== null ? `<br>row ${highlight} marked` : "") + (bandNote ? `<br>${bandNote}` : "");
   row.append(label, wrap, stat); container.appendChild(row);
 }
 function matrixGlyph(g, x, y, w = 14, h = 10) {                                  // a small grid: "a matrix multiplies here"
@@ -456,7 +456,7 @@ function filterBlock(c, m, l, t) {
   head.querySelector("input").onchange = e => { filterChoice[l] = Math.max(0, Math.min(d - 1, Math.round(+e.target.value) || 0)); renderCNNStep(m, l, t); };
   c.appendChild(head);
   for (let j = 2; j >= 0; j--) {
-    matrixRow(c, wName(j), `${2 * d} filters × ${d}: rows 0 to ${d - 1} content, ${d} to ${2 * d - 1} gates`, cnnThumb(l - 1, 2 - j, d), i, [d], "line: content above, gates below");
+    matrixRow(c, wName(j), `${2 * d} filters × ${d}: rows 0 to ${d - 1} content, ${d} to ${2 * d - 1} gates`, cnnThumb(l - 1, 2 - j, d), i, [d], "content above the line, gates below");
     stripRow(c, `${wName(j)}[${i}, ·]`, `row ${i}: its weights on the vector ${j ? `${j} back` : "at t"}`, Wl.Wk[2 - j].subarray(i * d, (i + 1) * d));
   }
   opRow(c, `u${subDigits(i)}(t) = b[${i}] + Σ<sub>j</sub> ${wName(2).replace("₂", "ⱼ")}[${i}, ·] · h⁽${l - 1}⁾(t−j) = ${fmt(u[i])} at this step, with bias ${fmt(Wl.b[i])}; its gate σ(g${subDigits(i)}) = ${g[i].toFixed(2)}, computed by filter ${d + i} of the same layer`);
@@ -590,8 +590,9 @@ function renderLSTMStep(m, t) {
     stripRow(s, "output h<sub>t</sub>", `${H}`, rowOf(Lr.h, H, t));
   });
   const z = document.createElement("div"); z.className = "strips wide"; box.appendChild(z);
-  sepRow(z, "projection of layer 2's output back to the embedding space, then 8,000 dot products with the embeddings");
-  stripRow(z, "z", `W h<sub>t</sub> + b, ${F.lstm.z[t - F.p0].length}`, F.lstm.z[t - F.p0]);
+  sepRow(z, `projection of layer 2's output (${H} numbers) back to the embedding space (${F.lstm.z[t - F.p0].length}), then 8,000 dot products with the embeddings`);
+  if (thumbs && thumbs.proj) matrixRow(z, "P, the projection", `${F.lstm.z[t - F.p0].length} × ${H}, nn.Linear(hidden, d) in the notebook`, thumbs.proj);
+  stripRow(z, "z", `P h<sub>t</sub> + b<sub>P</sub>, ${F.lstm.z[t - F.p0].length}`, F.lstm.z[t - F.p0]);
   lensRow(z, F.lstm.top[t - F.p0], "prediction after this token:");
   renderCell(m, t);
 }
@@ -676,7 +677,7 @@ const TOUR = [
     run: (m, q) => { focus("lstm-flow", ["tokens", "l1", "arrows-v", "l2", "marks"]); players.lstm.set(m.position - m.flow.p0); goTo("lstm-flow", q); } },
   { title: "How far the memory reaches", text: "Whatever was in the memory after step s reaches the selected token multiplied by f(s+1) × … × f(p), one forget gate per step in between. The last row shows that product, averaged over the slots: a long reach needs gates that stay close to 1. That is what the gates buy over a plain RNN, and what training has to learn.",
     run: (m, q) => { focus("lstm-flow", ["tokens", "l2", "arrows-c", "surv"]); players.lstm.set(m.position - m.flow.p0); goTo("lstm-flow", q); } },
-  { title: "Projection and prediction", text: "z = W h + b brings the 512 numbers back to 256; then the same 8,000 dot products and the same softmax as for the CNN. Both networks end the same way; they differ in how they build z: a fixed window of nine tokens, or a memory carried along step by step.",
+  { title: "Projection and prediction", text: "The output of layer 2 has 512 numbers, the embeddings 256: a last matrix P (256 × 512, nn.Linear in the notebook) brings it back, z = P h + b; then the same 8,000 dot products and the same softmax as for the CNN. Both networks end the same way; they differ in how they build z: a fixed window of nine tokens, or a memory carried along step by step.",
     run: (m, q) => { focus("lstm-flow", ["tokens", "l2", "pred"]); players.lstm.set(m.position - m.flow.p0); goTo("lstm-step", q); } },
 ];
 let tourIndex = -1;

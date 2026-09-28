@@ -52,6 +52,7 @@ async function init() {
                 thumbs: {                                                        // the big matrices as blocks: the two embedding tables, the LSTM's stacked gate weights
                   E: { cnn: thumb((r, c) => cnn.E[r * cnn.d + c], cnn.V, cnn.d), lstm: thumb((r, c) => lstm.E[r * lstm.d + c], lstm.V, lstm.d) },
                   lstm: lstm.layers.map(L => ({ ih: thumb((r, c) => L.Wih[r * L.inp + c], 4 * L.hidden, L.inp), hh: thumb((r, c) => L.Whh[r * L.hidden + c], 4 * L.hidden, L.hidden) })),
+                  proj: thumb((r, c) => lstm.projW[r * lstm.hidden + c], lstm.d, lstm.hidden),   // the output projection, nn.Linear(hidden, d)
                 } });
 }
 
