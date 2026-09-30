@@ -598,7 +598,7 @@ function renderLSTMStep(m, t) {
 function renderCell(m, t) {
   const F = m.flow, H = m.lstm.hidden, Lr = F.lstm.layers[1];
   const vf = rowOf(Lr.forget, H, t), vi = rowOf(Lr.input, H, t), vo = rowOf(Lr.output, H, t), vc = rowOf(Lr.candidate, H, t);
-  const svg = d3.select("#lstm-cell"), W = 560, Hh = 236;
+  const svg = d3.select("#lstm-cell"), W = 720, Hh = 252;
   svg.attr("viewBox", `0 0 ${W} ${Hh}`).selectAll("*").remove();
   svg.append("defs").append("marker").attr("id", "cell-arr").attr("viewBox", "0 0 10 10").attr("refX", 9).attr("refY", 5).attr("markerWidth", 5).attr("markerHeight", 5).attr("orient", "auto")
     .append("path").attr("d", "M0,0 L10,5 L0,10 z").attr("fill", "#666");
@@ -612,29 +612,36 @@ function renderCell(m, t) {
     svg.append("text").attr("class", "gatelab").attr("x", x).attr("y", y - 2).attr("text-anchor", "middle").text(label);
     svg.append("text").attr("class", "gateval").attr("x", x).attr("y", y + 10).attr("text-anchor", "middle").text(name);
   };
-  const cY = 40, gY = 150, hY = 204, xF = 150, xI = 220, xC = 320, xO = 470, xAdd = 270, xTanh = 400;
   const label = (x, y, txt, anchor = "start", cls = "lab") => svg.append("text").attr("class", cls).attr("x", x).attr("y", y).attr("text-anchor", anchor).text(txt);
-  // the memory line along the top: × forget, + (input ⊙ candidate), then on to the next step
+  const cY = 40, gY = 158, hY = 210, xF = 150, xI = 220, xC = 320, xO = 400, xAdd = 270, xIn = 90, xOut = 500;
+  // the memory line along the top: in from the previous step, ⊙ forget, + (input ⊙ candidate), out to the next step
   wire([[46, cY], [xF - 14, cY]], "wire mem"); wire([[xF + 13, cY], [xAdd - 14, cY]], "wire mem"); wire([[xAdd + 13, cY], [522, cY]], "wire mem");
-  label(40, cY + 4, "c t−1", "end"); label(528, cY + 4, "c t");
-  op(xF, cY, "⊙"); op(xAdd, cY, "+"); op(xAdd, 100, "⊙"); op(xTanh, 96, "tanh"); op(xTanh, 140, "⊙");
-  // gates and the candidate, all read from the same [x t, h t−1]
+  label(40, cY + 4, "c t−1", "end"); label(528, cY + 4, "c t"); label(528, cY + 16, "next step's c t−1", "start", "eq");
+  label(46, 22, "c t = f ⊙ c t−1 + i ⊙ c̃", "start", "eq");
+  op(xF, cY, "⊙"); op(xAdd, cY, "+"); op(xAdd, 100, "⊙"); op(xO, 80, "tanh"); op(xO, 120, "⊙");
+  // the two inputs: h t−1 from the left, x t from below; together they feed every node
+  wire([[46, hY], [xIn - 3, hY]], "wire bus"); label(40, hY + 4, "h t−1", "end");
+  wire([[xIn, Hh - 6], [xIn, hY + 3]], "wire bus"); label(xIn - 6, Hh - 8, "x t", "end");
+  dot(xIn, hY); wire([[xIn, hY], [xO, hY]], "wire bus");
+  label(xIn + 8, hY + 14, "[x t ; h t−1]: both go into every node, through W on x t and U on h t−1 (the grids)", "start", "eq");
+  label(xIn + 8, Hh - 8, "x t is the token's vector: its embedding in layer 1, the output of layer 1 in layer 2", "start", "eq");
+  for (const x of [xF, xI, xC, xO]) { dot(x, hY); wire([[x, hY], [x, gY + 16]]); matrixGlyph(svg, x - 7, 184).append("title").text("a weight matrix multiplies here: W on x t, U on h t−1"); }
   gate(xF, gY, "σ", "f", vf, true); gate(xI, gY, "σ", "i", vi, true); gate(xC, gY, "tanh", "c̃", vc, false); gate(xO, gY, "σ", "o", vo, true);
-  wire([[46, hY], [xO, hY]], "wire bus"); label(40, hY - 2, "h t−1", "end"); label(40, hY + 12, "x t", "end");
-  for (const x of [xF, xI, xC, xO]) { dot(x, hY); wire([[x, hY], [x, gY + 16]]); matrixGlyph(svg, x - 7, 178).append("title").text("a weight matrix multiplies here: W on x, U on h"); }
-  wire([[xF, gY - 16], [xF, cY + 14]]);                                           // f → ×
-  wire([[xI, gY - 16], [xI, 100], [xAdd - 14, 100]]);                              // i → ×
-  wire([[xC, gY - 16], [xC, 100], [xAdd + 14, 100]]);                              // c̃ → ×
+  wire([[xF, gY - 16], [xF, cY + 14]]);                                           // f → ⊙
+  wire([[xI, gY - 16], [xI, 100], [xAdd - 14, 100]]);                              // i → ⊙
+  wire([[xC, gY - 16], [xC, 100], [xAdd + 14, 100]]);                              // c̃ → ⊙
   wire([[xAdd, 87], [xAdd, cY + 14]]);                                             // i ⊙ c̃ → +
-  dot(xTanh, cY, "mem"); wire([[xTanh, cY], [xTanh, 82]]);                         // c t → tanh
-  wire([[xTanh, 109], [xTanh, 126]]);                                              // tanh(c t) → ×
-  wire([[xO, gY - 16], [xO, 140], [xTanh + 14, 140]]);                             // o → ×
-  wire([[xTanh - 13, 140], [46, 140]]); label(40, 144, "h t", "end");              // h t leaves: to the next step, and up to the next layer
-  label(xTanh - 20, 128, "h t = o ⊙ tanh(c t)", "end", "eq");
-  label(xAdd + 18, 84, "c t = f ⊙ c t−1 + i ⊙ c̃", "start", "eq");
+  dot(xO, cY, "mem"); wire([[xO, cY], [xO, 66]]);                                  // c t → tanh
+  wire([[xO, 93], [xO, 106]]);                                                     // tanh(c t) → ⊙
+  wire([[xO, gY - 16], [xO, 134]]);                                                // o → ⊙
+  // the output, twice: to the right as the next step's h t−1, and up to the layer above (or, after layer 2, to P and the prediction)
+  wire([[xO + 13, 120], [522, 120]]); label(528, 124, "h t"); label(528, 112, "next step's h t−1", "start", "eq");
+  dot(xOut, 120); wire([[xOut, 120], [xOut, 60]]);
+  label(xOut + 6, 68, "up: to the layer above (its x t)", "start", "eq"); label(xOut + 6, 80, "after layer 2: to P, the prediction", "start", "eq");
+  label(xO + 26, 140, "h t = o ⊙ tanh(c t)", "start", "eq");
   svg.selectAll("text.lab, text.eq").each(function () {                             // " t", " t−1" as subscripts
     const el = d3.select(this), txt = el.text(); el.text("");
-    txt.split(/( t−1| t)(?=[ )=]|$)/).forEach(part => { if (part === " t" || part === " t−1") el.append("tspan").attr("baseline-shift", "sub").attr("font-size", "8px").text(part.trim()); else if (part) el.append("tspan").text(part); });
+    txt.split(/( t−1| t)(?=[ )=\];:,]|$)/).forEach(part => { if (part === " t" || part === " t−1") el.append("tspan").attr("baseline-shift", "sub").attr("font-size", "8px").text(part.trim()); else if (part) el.append("tspan").text(part); });
   });
 }
 
