@@ -82,21 +82,22 @@ function renderBars(svgId, model, actual, noteId) {
 }
 
 // ---------------------------------------------------------------- heat maps on canvas
-function paintHeatmap(canvas, rows, cols, value, color) {
+function paintHeatmap(canvas, rows, cols, value, color, mark = null) {
   const ctx = canvas.getContext("2d"); canvas.width = cols; canvas.height = rows;
   const img = ctx.createImageData(cols, rows);
   for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
     const rgb = d3.rgb(color(value(r, c))), o = 4 * (r * cols + c);
     img.data[o] = rgb.r; img.data[o + 1] = rgb.g; img.data[o + 2] = rgb.b; img.data[o + 3] = 255;
   }
+  if (mark !== null) for (let r = 0; r < Math.min(10, rows); r++) { const o = 4 * (r * cols + mark); img.data[o] = 217; img.data[o + 1] = 95; img.data[o + 2] = 2; }   // a tick on the selected column
   ctx.putImageData(img, 0, 0);
 }
 const forgetColor = d3.scaleSequential(d3.interpolateGreens).domain([0, 1]);
 
 function renderHeatmaps(m) {
   const H = m.lstm.hidden;
-  for (let l = 0; l < 2; l++) paintHeatmap($(`lstm-forget-${l}`), H, m.T, (r, c) => m.lstm.forget[l][c * H + r], forgetColor);
-  $("lstm-forget-note").textContent = `rows: the ${H} memory slots of the layer; columns: the ${m.T} tokens, left to right; colour: forget gate, 0 (erase, white) to 1 (keep, dark)`;
+  for (let l = 0; l < 2; l++) paintHeatmap($(`lstm-forget-${l}`), H, m.T, (r, c) => m.lstm.forget[l][c * H + r], forgetColor, m.position);
+  $("lstm-forget-note").textContent = `rows: the ${H} memory slots of the layer; columns: the ${m.T} tokens, left to right; colour: forget gate, 0 (erase, white) to 1 (keep, dark); orange tick: token ${m.position + 1}, the selected one`;
 }
 
 // ---------------------------------------------------------------- context curve and slider

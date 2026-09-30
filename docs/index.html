@@ -49,13 +49,6 @@
     <h2>LSTM <span class="muted">5.9 M parameters, two layers of 512 units</span></h2>
     <h3>Next-token distribution <span class="muted" id="lstm-actual"></span></h3>
     <svg id="lstm-bars" class="bars"></svg>
-    <h3>The forget gates</h3>
-    <p class="explain">One row per memory slot, one column per token: how much of the slot is kept at that step (dark: kept, light: erased). A slot that stays dark across many tokens is carrying something over a long distance.</p>
-    <div class="heatmap-label">layer 1</div>
-    <canvas id="lstm-forget-0" class="heatmap tall"></canvas>
-    <div class="heatmap-label">layer 2</div>
-    <canvas id="lstm-forget-1" class="heatmap tall"></canvas>
-    <div class="axis-note" id="lstm-forget-note"></div>
     <h3>Which past tokens it actually uses</h3>
     <p class="explain">Same test on the last sixteen tokens: erase one, recompute from there, measure the change of the prediction in bits. The LSTM can be influenced by tokens far outside the CNN's window; whether it is depends on the text.</p>
     <div id="lstm-influence" class="strip"></div>
@@ -115,9 +108,15 @@
   <div class="strip-label">the numbers of the current step, layer 1 and layer 2 <span class="muted">(hover a cell to read a coordinate)</span></div>
   <div id="lstm-step" class="two-columns"></div>
 
-  <h3>3. The LSTM's memory over the whole text</h3>
-  <p class="explain">The twelve memory slots of layer 2 with the largest values at the selected token, followed across the whole text. A flat line is a slot holding on to something; a jump is a write; a decay towards zero is the forget gate at work.</p>
+  <h3>3. Over the whole text: the memory, and the forget gates</h3>
+  <p class="explain">The step-by-step view above stops at sixteen tokens. Here is the whole text. First the twelve memory slots of layer 2 with the largest values at the selected token, followed from the first token to the last: a flat line is a slot holding on to something; a jump is a write; a decay towards zero is the forget gate at work.</p>
   <svg id="memory-traj"></svg>
+  <p class="explain">Then all 512 slots of each layer at once: one row per memory slot, one column per token, the colour is the forget gate at that step (dark: kept, light: erased). A slot that stays dark across many tokens is carrying something over a long distance. The orange tick marks the selected token.</p>
+  <div class="heatmap-label">layer 1</div>
+  <canvas id="lstm-forget-0" class="heatmap tall"></canvas>
+  <div class="heatmap-label">layer 2</div>
+  <canvas id="lstm-forget-1" class="heatmap tall"></canvas>
+  <div class="axis-note" id="lstm-forget-note"></div>
 </section>
 
 <footer>
