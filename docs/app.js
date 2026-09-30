@@ -190,12 +190,9 @@ function thumbOf(get, rows, cols, R = 96, C = 160) {
   for (let y = 0; y < R; y++) { const r = Math.floor(y * rows / R); for (let x = 0; x < C; x++) data[y * C + x] = get(r, Math.floor(x * cols / C)); }
   return { rows, cols, R, C, data };
 }
-function matrixRow(container, name, sub, th, highlight = null, bands = null, bandNote = "") {
-  const row = document.createElement("div"); row.className = "vrow mrow";
-  const label = document.createElement("div"); label.className = "vname"; label.innerHTML = `${name}<small>${sub}</small>`;
-  const wrap = document.createElement("div"); wrap.className = "mwrap";
+function thumbCanvas(th, highlight = null, bands = null) {                       // a matrix as a block, drawn with the orientation of its shape, not to scale
   const canvas = document.createElement("canvas"); canvas.width = th.C; canvas.height = th.R;
-  const aspect = Math.min(3, Math.max(1 / 3, th.cols / th.rows));                  // drawn with the orientation of its shape, not to scale
+  const aspect = Math.min(3, Math.max(1 / 3, th.cols / th.rows));
   canvas.style.width = (aspect < 1 ? Math.round(160 * aspect) : 160) + "px"; canvas.style.height = (aspect < 1 ? 160 : Math.round(160 / aspect)) + "px";
   const ctx = canvas.getContext("2d"), img = ctx.createImageData(th.C, th.R);
   let maxAbs = 1e-6; for (const v of th.data) maxAbs = Math.max(maxAbs, Math.abs(v));
@@ -203,8 +200,24 @@ function matrixRow(container, name, sub, th, highlight = null, bands = null, ban
   ctx.putImageData(img, 0, 0);
   if (bands) { ctx.fillStyle = "#222"; for (const b of bands) ctx.fillRect(0, Math.floor(b * th.R / th.rows), th.C, 1); }
   if (highlight !== null) { ctx.fillStyle = "#d95f02"; ctx.fillRect(0, Math.min(th.R - 2, Math.floor(highlight * th.R / th.rows)), th.C, 2); }
-  wrap.appendChild(canvas);
+  return canvas;
+}
+function matrixRow(container, name, sub, th, highlight = null, bands = null, bandNote = "") {
+  const row = document.createElement("div"); row.className = "vrow mrow";
+  const label = document.createElement("div"); label.className = "vname"; label.innerHTML = `${name}<small>${sub}</small>`;
+  const wrap = document.createElement("div"); wrap.className = "mwrap"; wrap.appendChild(thumbCanvas(th, highlight, bands));
   const stat = document.createElement("div"); stat.className = "vstat mstat"; stat.innerHTML = `matrix ${th.rows.toLocaleString("en")} × ${th.cols}` + (highlight !== null ? `<br>row ${highlight} marked` : "") + (bandNote ? `<br>${bandNote}` : "");
+  row.append(label, wrap, stat); container.appendChild(row);
+}
+function matrixRowMulti(container, name, sub, items, note) {                    // several matrices side by side, one label and one note for all
+  const row = document.createElement("div"); row.className = "vrow mrow";
+  const label = document.createElement("div"); label.className = "vname"; label.innerHTML = `${name}<small>${sub}</small>`;
+  const wrap = document.createElement("div"); wrap.className = "mwrap multi";
+  for (const it of items) {
+    const fig = document.createElement("figure"); fig.className = "mfig"; fig.appendChild(thumbCanvas(it.th, it.highlight ?? null, it.bands ?? null));
+    const cap = document.createElement("figcaption"); cap.innerHTML = it.caption; fig.appendChild(cap); wrap.appendChild(fig);
+  }
+  const stat = document.createElement("div"); stat.className = "vstat mstat"; stat.innerHTML = note;
   row.append(label, wrap, stat); container.appendChild(row);
 }
 function matrixGlyph(g, x, y, w = 14, h = 10) {                                  // a small grid: "a matrix multiplies here"
@@ -476,10 +489,10 @@ function filterBlock(c, m, l, t) {
   head.innerHTML = `zoom on one of the ${d} content filters of layer ${l}: filter <input type="number" min="0" max="${d - 1}" value="${i}"> <span class="muted">(${i === best ? "the one that writes most at this step, largest |u ⊙ σ(g)|" : `the one that writes most at this step is ${best}`}). A filter is a stencil of 3 × ${d} weights, one row of each matrix, applied at every position; the layer has ${d} of them for the content and ${d} more for the gates.</span>`;
   head.querySelector("input").onchange = e => { filterChoice[l] = Math.max(0, Math.min(d - 1, Math.round(+e.target.value) || 0)); renderCNNStep(m, l, t); };
   c.appendChild(head);
-  for (let j = 2; j >= 0; j--) {
-    matrixRow(c, wName(j), `${2 * d} filters × ${d}: rows 0 to ${d - 1} content, ${d} to ${2 * d - 1} gates`, cnnThumb(l - 1, 2 - j, d), i, [d], "content above the line, gates below");
-    stripRow(c, `${wName(j)}[${i}, ·]`, `row ${i}: its weights on the vector ${j ? `${j} back` : "at t"}`, Wl.Wk[2 - j].subarray(i * d, (i + 1) * d));
-  }
+  matrixRowMulti(c, "the three matrices", `${2 * d} filters × ${d} each, row ${i} marked`,
+    [2, 1, 0].map(j => ({ th: cnnThumb(l - 1, 2 - j, d), highlight: i, bands: [d], caption: `${wName(j)}<br>on the vector ${j ? `${j} back` : "at t"}` })),
+    `row ${i} marked in orange: filter ${i}; content filters above the line, gate filters below`);
+  for (let j = 2; j >= 0; j--) stripRow(c, `${wName(j)}[${i}, ·]`, `row ${i}: its weights on the vector ${j ? `${j} back` : "at t"}`, Wl.Wk[2 - j].subarray(i * d, (i + 1) * d));
 }
 
 // ---------------------------------------------------------------- the LSTM: one cell applied at every token, passing (h, c) along
@@ -574,8 +587,10 @@ function renderLSTMStep(m, t) {
     stripRow(s, "previous output h<sub>t−1</sub>", t > 0 ? `${H}` : "start of the text: zeros", t > 0 ? rowOf(Lr.h, H, t - 1) : new Float32Array(H));
     stripRow(s, "previous memory c<sub>t−1</sub>", t > 0 ? `${H}` : "start of the text: zeros", t > 0 ? rowOf(Lr.cell, H, t - 1) : new Float32Array(H));
     if (thumbs) {
-      matrixRow(s, "W<sub>i</sub>, W<sub>f</sub>, W<sub>c̃</sub>, W<sub>o</sub> stacked", `on x, 4 × ${H} rows × ${Lr.nin}`, thumbs.lstm[l].ih, null, [H, 2 * H, 3 * H], "bands: i, f, c̃, o (PyTorch's storage order)");
-      matrixRow(s, "U<sub>i</sub>, U<sub>f</sub>, U<sub>c̃</sub>, U<sub>o</sub> stacked", `on h<sub>t−1</sub>, 4 × ${H} rows × ${H}`, thumbs.lstm[l].hh, null, [H, 2 * H, 3 * H], "bands: i, f, c̃, o (PyTorch's storage order)");
+      matrixRowMulti(s, "the weights of the four nodes", "stacked, one band per node",
+        [{ th: thumbs.lstm[l].ih, bands: [H, 2 * H, 3 * H], caption: `W<sub>i</sub>, W<sub>f</sub>, W<sub>c̃</sub>, W<sub>o</sub> on x<br>${4 * H} × ${Lr.nin}` },
+         { th: thumbs.lstm[l].hh, bands: [H, 2 * H, 3 * H], caption: `U<sub>i</sub>, U<sub>f</sub>, U<sub>c̃</sub>, U<sub>o</sub> on h<sub>t−1</sub><br>${4 * H} × ${H}` }],
+        "bands, top to bottom: i, f, c̃, o (PyTorch's storage order)");
     }
     opRow(s, "v<sub>t</sub> = φ(W<sub>v</sub> x<sub>t</sub> + U<sub>v</sub> h<sub>t−1</sub> + b<sub>v</sub>) for v in {c̃, f, i, o}: four vectors, each from its own band of the two matrices:");
     stripRow(s, "candidate c̃", `tanh, ${H}`, rowOf(Lr.candidate, H, t));
