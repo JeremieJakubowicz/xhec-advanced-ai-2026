@@ -94,7 +94,6 @@ a { color: inherit; }
 .flow .arrow.mem { stroke: var(--accent2); stroke-width: 3; }
 .flow .arrow.current { stroke: var(--accent); }
 .flow .arrow.future { opacity: .12; }
-.flow .meterbg { fill: #ececec; }
 .flow .gl { font: 8.5px ui-monospace, Menlo, Consolas, monospace; fill: #666; }
 .flow .survtxt { font: 9px ui-monospace, Menlo, Consolas, monospace; }
 
@@ -122,8 +121,8 @@ a { color: inherit; }
 .cell .dot { fill: #666; }
 .cell .dot.mem { fill: var(--accent2); }
 .cell .oplab { font-size: 12px; fill: #222; }
-.cell .gatelab { font-size: 11px; }
-.cell .gateval { font: 9px ui-monospace, Menlo, Consolas, monospace; }
+.cell .gatelab { font-size: 11px; fill: #222; paint-order: stroke; stroke: #fff; stroke-width: 3px; stroke-linejoin: round; }
+.cell .gateval { font: 9px ui-monospace, Menlo, Consolas, monospace; fill: #222; paint-order: stroke; stroke: #fff; stroke-width: 3px; stroke-linejoin: round; }
 .cell .lab { font-size: 12px; fill: #333; font-style: italic; }
 .cell .eq { font-size: 10.5px; fill: var(--muted); }
 

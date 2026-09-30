@@ -490,7 +490,7 @@ function renderLSTMFlow(m) {
   const xY = 34, lY = [xY + cellH + 34, xY + cellH + 34 + boxH + 34];
   const survY = lY[1] + boxH + 28, predY = survY + 20 + 26, Hh = predY + 14;
   const x = t => left + (t - p0 + 1) * cw + 7;                                     // left edge of column t; column p0−1 is the carried state
-  const cY = y => y + 44, hY = y => y + 66;                                          // y of the memory and output strips inside a box
+  const cY = y => y + 50, hY = y => y + 66;                                          // y of the memory and output strips inside a box
   svg.attr("viewBox", `0 0 ${W} ${Hh}`).selectAll("*").remove();
   const defs = svg.append("defs");
   for (const [id, color] of [["arr", "#999"], ["arr-mem", "#1b9e77"], ["arr-cur", "#d95f02"]])
@@ -514,31 +514,22 @@ function renderLSTMFlow(m) {
     arrows.push({ kind: "h", t, el: gArrH.append("line").attr("x1", x(t - 1) + cellW).attr("y1", hY(y) + 6).attr("x2", x(t) - 1).attr("y2", hY(y) + 6) });
     arrows.push({ kind: "v", t, el: gArrV.append("line").attr("x1", x(t) + cellW / 2).attr("y1", l === 0 ? xY + cellH : lY[0] + boxH).attr("x2", x(t) + cellW / 2).attr("y2", y - 1) });
   }
-  const meters = [["f", "forget", "#1b9e77"], ["i", "input", "#d95f02"], ["o", "output", "#6b6b6b"]];
+  const rowsIn = [["forget gate f", "forget", true, 4], ["input gate i", "input", true, 18], ["output gate o", "output", true, 32], ["memory c", "cell", false, 50], ["output h", "h", false, 66]];
   const boxSel = [];
   for (let l = 0; l < 2; l++) {
     const g = part(`l${l + 1}`), y = lY[l], Lr = Ls[l];
-    g.append("text").attr("class", "rowlab").attr("x", left - 8).attr("y", y + 12).attr("text-anchor", "end").text(`layer ${l + 1}`);
-    g.append("text").attr("class", "sublab").attr("x", left - 8).attr("y", y + 26).attr("text-anchor", "end").text("gates f, i, o (mean of 512)");
-    g.append("text").attr("class", "sublab").attr("x", left - 8).attr("y", cY(y) + 10).attr("text-anchor", "end").text("memory c (512)");
-    g.append("text").attr("class", "sublab").attr("x", left - 8).attr("y", hY(y) + 10).attr("text-anchor", "end").text("output h (512)");
+    g.append("text").attr("class", "rowlab").attr("x", left - 8).attr("y", y - 6).attr("text-anchor", "end").text(`layer ${l + 1} · 5 vectors of ${H}`);
+    rowsIn.forEach(([lab, , , yy]) => g.append("text").attr("class", "sublab").attr("x", left - 8).attr("y", y + yy + 10).attr("text-anchor", "end").text(lab));
     const cg = g.append("g").attr("transform", `translate(${x(p0 - 1)},${y})`);   // the state carried into the window
     cg.append("rect").attr("class", "box carried").attr("width", cellW).attr("height", boxH).attr("rx", 4);
     const cPrev = p0 > 0 ? rowOf(Lr.cell, H, p0 - 1) : new Float32Array(H), hPrev = p0 > 0 ? rowOf(Lr.h, H, p0 - 1) : new Float32Array(H);
-    cg.append("text").attr("class", "gl").attr("x", cellW / 2).attr("y", 22).attr("text-anchor", "middle").text(p0 > 0 ? `after token ${p0}` : "zeros");
+    cg.append("text").attr("class", "gl").attr("x", cellW / 2).attr("y", 26).attr("text-anchor", "middle").text(p0 > 0 ? `after token ${p0}` : "zeros");
     cg.append("image").attr("href", rasterURL(cPrev)).attr("x", 3).attr("y", cY(y) - y).attr("width", cellW - 6).attr("height", 12).attr("preserveAspectRatio", "none");
     cg.append("image").attr("href", rasterURL(hPrev)).attr("x", 3).attr("y", hY(y) - y).attr("width", cellW - 6).attr("height", 12).attr("preserveAspectRatio", "none");
     const cells = d3.range(p0, p + 1).map(t => ({ l, t }));
     const bg = g.selectAll("g.cell").data(cells).join("g").attr("class", "cell").attr("transform", c => `translate(${x(c.t)},${y})`).style("cursor", "pointer").on("click", (_, c) => players.lstm.set(c.t - p0));
     bg.append("rect").attr("class", "box").attr("width", cellW).attr("height", boxH).attr("rx", 4);
-    meters.forEach(([letter, key, color], k) => {
-      const my = 8 + k * 11, bw = cellW - 22;
-      bg.append("text").attr("class", "gl").attr("x", 4).attr("y", my + 7).text(letter);
-      bg.append("rect").attr("class", "meterbg").attr("x", 15).attr("y", my).attr("width", bw).attr("height", 7);
-      bg.append("rect").attr("x", 15).attr("y", my).attr("height", 7).attr("fill", color).attr("width", c => bw * meanOf(rowOf(Lr[key], H, c.t)));
-    });
-    bg.append("image").attr("href", c => rasterURL(rowOf(Lr.cell, H, c.t))).attr("x", 3).attr("y", cY(y) - y).attr("width", cellW - 6).attr("height", 12).attr("preserveAspectRatio", "none");
-    bg.append("image").attr("href", c => rasterURL(rowOf(Lr.h, H, c.t))).attr("x", 3).attr("y", hY(y) - y).attr("width", cellW - 6).attr("height", 12).attr("preserveAspectRatio", "none");
+    rowsIn.forEach(([, key, isGate, yy]) => bg.append("image").attr("href", c => rasterURL(rowOf(Lr[key], H, c.t), isGate)).attr("x", 3).attr("y", yy).attr("width", cellW - 6).attr("height", 12).attr("preserveAspectRatio", "none"));
     bg.append("title").text(c => `layer ${l + 1}, token ${c.t + 1} (${show(m.tokens[c.t].text)}): forget ${meanOf(rowOf(Lr.forget, H, c.t)).toFixed(2)}, input ${meanOf(rowOf(Lr.input, H, c.t)).toFixed(2)}, output ${meanOf(rowOf(Lr.output, H, c.t)).toFixed(2)}; |c| = ${norm(rowOf(Lr.cell, H, c.t)).toFixed(1)}`);
     boxSel.push(bg);
   }
@@ -546,12 +537,13 @@ function renderLSTMFlow(m) {
   const gSurv = part("surv"), Fg = Ls[1].forget;
   gSurv.append("text").attr("class", "rowlab").attr("x", left - 8).attr("y", survY + 6).attr("text-anchor", "end").text("memory that survives");
   gSurv.append("text").attr("class", "sublab").attr("x", left - 8).attr("y", survY + 17).attr("text-anchor", "end").text("to the selected token");
-  gSurv.append("text").attr("class", "sublab").attr("x", left - 8).attr("y", survY + 28).attr("text-anchor", "end").text("f × … × f, layer 2, mean");
-  const surv = d3.range(p0, p + 1).map(s => { let acc = 0; for (let j = 0; j < H; j++) { let prod = 1; for (let k = s + 1; k <= p; k++) prod *= Fg[k * H + j]; acc += prod; } return { s, v: acc / H }; });
+  gSurv.append("text").attr("class", "sublab").attr("x", left - 8).attr("y", survY + 28).attr("text-anchor", "end").text("f × … × f, layer 2, slot by slot");
+  const surv = d3.range(p0, p + 1).map(s => { const vec = new Float32Array(H); let acc = 0; for (let j = 0; j < H; j++) { let prod = 1; for (let k = s + 1; k <= p; k++) prod *= Fg[k * H + j]; vec[j] = prod; acc += prod; } return { s, vec, v: acc / H }; });
   const sg = gSurv.selectAll("g").data(surv).join("g").attr("transform", r => `translate(${x(r.s)},${survY})`);
-  sg.append("rect").attr("width", cellW).attr("height", 20).attr("rx", 3).attr("fill", r => forgetColor(r.v)).attr("stroke", "#c9c9c9");
-  sg.append("text").attr("class", "survtxt").attr("x", cellW / 2).attr("y", 14).attr("text-anchor", "middle").attr("fill", r => r.v > .55 ? "#fff" : "#222").text(r => r.v.toFixed(2));
-  sg.append("title").text(r => `of the memory after token ${r.s + 1}, a share ${r.v.toFixed(3)} (on average over the 512 slots) survives to token ${p + 1}`);
+  sg.append("image").attr("href", r => rasterURL(r.vec, true)).attr("width", cellW).attr("height", 12).attr("preserveAspectRatio", "none");
+  sg.append("rect").attr("class", "cellframe").attr("width", cellW).attr("height", 12);
+  sg.append("text").attr("class", "survtxt").attr("x", cellW / 2).attr("y", 24).attr("text-anchor", "middle").attr("fill", "#222").text(r => `mean ${r.v.toFixed(2)}`);
+  sg.append("title").text(r => `of the memory after token ${r.s + 1}: slot by slot, the share that survives to token ${p + 1} (${H} values, mean ${r.v.toFixed(3)})`);
   const gPred = part("pred");
   gPred.append("text").attr("class", "rowlab").attr("x", left - 8).attr("y", predY + 4).attr("text-anchor", "end").text("predicted next token");
   const predSel = gPred.selectAll("text.predlab").data(d3.range(p0, p + 1)).join("text").attr("class", "predlab").attr("x", t => x(t) + cellW / 2).attr("y", predY + 4).attr("text-anchor", "middle")
@@ -605,7 +597,7 @@ function renderLSTMStep(m, t) {
 // ---------------------------------------------------------------- one LSTM cell, wired as in Christopher Olah's figure, coloured with the current step (layer 2)
 function renderCell(m, t) {
   const F = m.flow, H = m.lstm.hidden, Lr = F.lstm.layers[1];
-  const f = meanOf(rowOf(Lr.forget, H, t)), i = meanOf(rowOf(Lr.input, H, t)), o = meanOf(rowOf(Lr.output, H, t));
+  const vf = rowOf(Lr.forget, H, t), vi = rowOf(Lr.input, H, t), vo = rowOf(Lr.output, H, t), vc = rowOf(Lr.candidate, H, t);
   const svg = d3.select("#lstm-cell"), W = 560, Hh = 236;
   svg.attr("viewBox", `0 0 ${W} ${Hh}`).selectAll("*").remove();
   svg.append("defs").append("marker").attr("id", "cell-arr").attr("viewBox", "0 0 10 10").attr("refX", 9).attr("refY", 5).attr("markerWidth", 5).attr("markerHeight", 5).attr("orient", "auto")
@@ -613,20 +605,21 @@ function renderCell(m, t) {
   const wire = (pts, cls = "wire") => svg.append("polyline").attr("class", cls).attr("points", pts.map(q => q.join(",")).join(" ")).attr("marker-end", "url(#cell-arr)");
   const dot = (x, y, cls = "") => svg.append("circle").attr("class", "dot " + cls).attr("cx", x).attr("cy", y).attr("r", 3);
   const op = (x, y, label) => { svg.append("circle").attr("class", "node").attr("cx", x).attr("cy", y).attr("r", 13); svg.append("text").attr("class", "oplab").attr("x", x).attr("y", y + 4).attr("text-anchor", "middle").text(label); };
-  const gate = (x, y, label, sub, value) => {
-    svg.append("rect").attr("class", "node").attr("x", x - 22).attr("y", y - 15).attr("width", 44).attr("height", 30).attr("rx", 5).attr("fill", value === null ? "#fff" : gateScale(value));
-    const ink = value !== null && value > .55 ? "#fff" : "#222";
-    svg.append("text").attr("class", "gatelab").attr("x", x).attr("y", y - 2).attr("text-anchor", "middle").attr("fill", ink).text(label);
-    svg.append("text").attr("class", "gateval").attr("x", x).attr("y", y + 10).attr("text-anchor", "middle").attr("fill", ink).text(sub);
+  const gate = (x, y, label, name, vec, isGate) => {                            // a node that outputs a vector: its 512 values are the strip inside
+    svg.append("image").attr("href", rasterURL(vec, isGate)).attr("x", x - 22).attr("y", y - 15).attr("width", 44).attr("height", 30).attr("preserveAspectRatio", "none");
+    svg.append("rect").attr("class", "node").attr("x", x - 22).attr("y", y - 15).attr("width", 44).attr("height", 30).attr("rx", 5).style("fill", "none")
+      .append("title").text(`${name}: a vector of ${H} values, one per memory slot; mean ${meanOf(vec).toFixed(2)}`);
+    svg.append("text").attr("class", "gatelab").attr("x", x).attr("y", y - 2).attr("text-anchor", "middle").text(label);
+    svg.append("text").attr("class", "gateval").attr("x", x).attr("y", y + 10).attr("text-anchor", "middle").text(name);
   };
   const cY = 40, gY = 150, hY = 204, xF = 150, xI = 220, xC = 320, xO = 470, xAdd = 270, xTanh = 400;
   const label = (x, y, txt, anchor = "start", cls = "lab") => svg.append("text").attr("class", cls).attr("x", x).attr("y", y).attr("text-anchor", anchor).text(txt);
   // the memory line along the top: × forget, + (input ⊙ candidate), then on to the next step
   wire([[46, cY], [xF - 14, cY]], "wire mem"); wire([[xF + 13, cY], [xAdd - 14, cY]], "wire mem"); wire([[xAdd + 13, cY], [522, cY]], "wire mem");
   label(40, cY + 4, "c t−1", "end"); label(528, cY + 4, "c t");
-  op(xF, cY, "×"); op(xAdd, cY, "+"); op(xAdd, 100, "×"); op(xTanh, 96, "tanh"); op(xTanh, 140, "×");
+  op(xF, cY, "⊙"); op(xAdd, cY, "+"); op(xAdd, 100, "⊙"); op(xTanh, 96, "tanh"); op(xTanh, 140, "⊙");
   // gates and the candidate, all read from the same [x t, h t−1]
-  gate(xF, gY, "σ", `f ${f.toFixed(2)}`, f); gate(xI, gY, "σ", `i ${i.toFixed(2)}`, i); gate(xC, gY, "tanh", "c̃", null); gate(xO, gY, "σ", `o ${o.toFixed(2)}`, o);
+  gate(xF, gY, "σ", "f", vf, true); gate(xI, gY, "σ", "i", vi, true); gate(xC, gY, "tanh", "c̃", vc, false); gate(xO, gY, "σ", "o", vo, true);
   wire([[46, hY], [xO, hY]], "wire bus"); label(40, hY - 2, "h t−1", "end"); label(40, hY + 12, "x t", "end");
   for (const x of [xF, xI, xC, xO]) { dot(x, hY); wire([[x, hY], [x, gY + 16]]); matrixGlyph(svg, x - 7, 178).append("title").text("a weight matrix multiplies here: W on x, U on h"); }
   wire([[xF, gY - 16], [xF, cY + 14]]);                                           // f → ×
@@ -670,7 +663,7 @@ const TOUR = [
     run: (m, q) => { focus("cnn-flow", ["tokens", "layer4", "z", "pred"]); players.cnn.set(cnnStep(m, 4, m.position)); goTo("cnn-flow", q); } },
   { title: "The LSTM: one cell", text: "A recurrent network has a single cell, applied at every token in turn. At step t it receives the input of the moment, x, together with its own previous output h and memory c, carried in from the step before (the arrows from the left). At the start of the text, h and c are zeros.",
     run: (m, q) => { focus("lstm-flow", ["tokens", "x", "l1", "arrows-c", "arrows-h", "arrows-v", "marks"]); players.lstm.set(0); goTo("lstm-flow", q); } },
-  { title: "Three gates", text: "From x and h the cell computes a candidate c̃ and three gates, sigmoids between 0 and 1: f (forget) says how much of the old memory to keep, i (input) how much of the candidate to write, o (output) how much of the memory to show. The bars in each box are their means over the 512 slots.",
+  { title: "Three gates", text: "From x and h the cell computes a candidate c̃ and three gates, sigmoids between 0 and 1: f (forget) says how much of the old memory to keep, i (input) how much of the candidate to write, o (output) how much of the memory to show. Each gate is a vector of 512 values, one per memory slot, drawn as a green strip in each box; the products in the update are coordinate-wise, slot by slot.",
     run: (m, q) => { focus("lstm-flow", ["tokens", "x", "l1", "marks"]); players.lstm.set(0); goTo("lstm-flow", q); } },
   { title: "Updating the memory", text: "c = f ⊙ c_previous + i ⊙ c̃: what survived the forget gate, plus what the input gate let in. The thick green arrow is that memory handed to the next step, the only road from the past to the present.",
     run: (m, q) => { focus("lstm-flow", ["tokens", "l1", "arrows-c", "marks"]); players.lstm.set(0); goTo("lstm-flow", q); } },
