@@ -195,6 +195,8 @@ function matrixRow(container, name, sub, th, highlight = null, bands = null, ban
   const label = document.createElement("div"); label.className = "vname"; label.innerHTML = `${name}<small>${sub}</small>`;
   const wrap = document.createElement("div"); wrap.className = "mwrap";
   const canvas = document.createElement("canvas"); canvas.width = th.C; canvas.height = th.R;
+  const aspect = Math.min(3, Math.max(1 / 3, th.cols / th.rows));                  // drawn with the orientation of its shape, not to scale
+  canvas.style.width = (aspect < 1 ? Math.round(160 * aspect) : 160) + "px"; canvas.style.height = (aspect < 1 ? 160 : Math.round(160 / aspect)) + "px";
   const ctx = canvas.getContext("2d"), img = ctx.createImageData(th.C, th.R);
   let maxAbs = 1e-6; for (const v of th.data) maxAbs = Math.max(maxAbs, Math.abs(v));
   for (let k = 0; k < th.data.length; k++) { const rgb = d3.rgb(diverging(th.data[k] / maxAbs)), o = 4 * k; img.data[o] = rgb.r; img.data[o + 1] = rgb.g; img.data[o + 2] = rgb.b; img.data[o + 3] = 255; }
@@ -213,7 +215,7 @@ function matrixGlyph(g, x, y, w = 14, h = 10) {                                 
   return k;
 }
 const wThumbs = {};                                                              // the CNN's weight matrices as blocks, computed once per (layer, offset)
-function cnnThumb(l, kk, d) { const key = `${l}-${kk}`; return wThumbs[key] || (wThumbs[key] = thumbOf((r, c) => cnnWeights[l].Wk[kk][r * d + c], 2 * d, d)); }
+function cnnThumb(l, kk, d) { const key = `${l}-${kk}`; return wThumbs[key] || (wThumbs[key] = thumbOf((r, c) => cnnWeights[l].Wk[kk][r * d + c], 2 * d, d, 160, 80)); }
 
 function lensRow(container, top, label = "if it stopped here:") {           // "logit lens": what the network would predict from this vector
   const el = document.createElement("div"); el.className = "lens";
@@ -580,8 +582,8 @@ function renderLSTMStep(m, t) {
     stripRow(s, "previous output h<sub>t−1</sub>", t > 0 ? `${H}` : "start of the text: zeros", t > 0 ? rowOf(Lr.h, H, t - 1) : new Float32Array(H));
     stripRow(s, "previous memory c<sub>t−1</sub>", t > 0 ? `${H}` : "start of the text: zeros", t > 0 ? rowOf(Lr.cell, H, t - 1) : new Float32Array(H));
     if (thumbs) {
-      matrixRow(s, "W<sub>i</sub>, W<sub>f</sub>, W<sub>c̃</sub>, W<sub>o</sub> stacked", `on x, 4 × ${H} rows × ${Lr.nin}`, thumbs.lstm[l].ih, null, [H, 2 * H, 3 * H], "bands: i, f, c̃, o");
-      matrixRow(s, "U<sub>i</sub>, U<sub>f</sub>, U<sub>c̃</sub>, U<sub>o</sub> stacked", `on h<sub>t−1</sub>, 4 × ${H} rows × ${H}`, thumbs.lstm[l].hh, null, [H, 2 * H, 3 * H], "bands: i, f, c̃, o");
+      matrixRow(s, "W<sub>i</sub>, W<sub>f</sub>, W<sub>c̃</sub>, W<sub>o</sub> stacked", `on x, 4 × ${H} rows × ${Lr.nin}`, thumbs.lstm[l].ih, null, [H, 2 * H, 3 * H], "bands: i, f, c̃, o (PyTorch's storage order)");
+      matrixRow(s, "U<sub>i</sub>, U<sub>f</sub>, U<sub>c̃</sub>, U<sub>o</sub> stacked", `on h<sub>t−1</sub>, 4 × ${H} rows × ${H}`, thumbs.lstm[l].hh, null, [H, 2 * H, 3 * H], "bands: i, f, c̃, o (PyTorch's storage order)");
     }
     opRow(s, "v<sub>t</sub> = φ(W<sub>v</sub> x<sub>t</sub> + U<sub>v</sub> h<sub>t−1</sub> + b<sub>v</sub>) for v in {c̃, f, i, o}: four vectors, each from its own band of the two matrices:");
     stripRow(s, "candidate c̃", `tanh, ${H}`, rowOf(Lr.candidate, H, t));
@@ -680,7 +682,7 @@ const TOUR = [
     run: (m, q) => { focus("lstm-flow", ["tokens", "l1", "arrows-v", "l2", "marks"]); players.lstm.set(m.position - m.flow.p0); goTo("lstm-flow", q); } },
   { title: "How far the memory reaches", text: "Whatever was in the memory after step s reaches the selected token multiplied by f(s+1) × … × f(p), one forget gate per step in between. The last row shows that product, averaged over the slots: a long reach needs gates that stay close to 1. That is what the gates buy over a plain RNN, and what training has to learn.",
     run: (m, q) => { focus("lstm-flow", ["tokens", "l2", "arrows-c", "surv"]); players.lstm.set(m.position - m.flow.p0); goTo("lstm-flow", q); } },
-  { title: "Projection and prediction", text: "The output of layer 2 has 512 numbers, the embeddings 256: a last matrix P (256 × 512, nn.Linear in the notebook) brings it back, z = P h + b; then the same 8,000 dot products and the same softmax as for the CNN. Both networks end the same way; they differ in how they build z: a fixed window of nine tokens, or a memory carried along step by step.",
+  { title: "Projection and prediction", text: "The output of layer 2 has 512 numbers, the embeddings 256: a last matrix P (256 × 512, nn.Linear in the notebook) brings it back, z = P h + b_P; then the same 8,000 dot products and the same softmax as for the CNN. Both networks end the same way; they differ in how they build z: a fixed window of nine tokens, or a memory carried along step by step.",
     run: (m, q) => { focus("lstm-flow", ["tokens", "l2", "pred"]); players.lstm.set(m.position - m.flow.p0); goTo("lstm-step", q); } },
 ];
 let tourIndex = -1;
