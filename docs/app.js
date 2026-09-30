@@ -91,12 +91,9 @@ function paintHeatmap(canvas, rows, cols, value, color) {
   }
   ctx.putImageData(img, 0, 0);
 }
-const gateColor = d3.scaleSequential(d3.interpolateOranges).domain([0, 1]);
 const forgetColor = d3.scaleSequential(d3.interpolateGreens).domain([0, 1]);
 
 function renderHeatmaps(m) {
-  paintHeatmap($("cnn-gates"), m.cnn.gateMeans.length, m.T, (r, c) => m.cnn.gateMeans[r][c], gateColor);
-  $("cnn-gates-note").textContent = `rows: layers 1 to ${m.cnn.gateMeans.length} (top to bottom); columns: the ${m.T} tokens, left to right; colour: average gate value, 0 (white) to 1 (dark)`;
   const H = m.lstm.hidden;
   for (let l = 0; l < 2; l++) paintHeatmap($(`lstm-forget-${l}`), H, m.T, (r, c) => m.lstm.forget[l][c * H + r], forgetColor);
   $("lstm-forget-note").textContent = `rows: the ${H} memory slots of the layer; columns: the ${m.T} tokens, left to right; colour: forget gate, 0 (erase, white) to 1 (keep, dark)`;
@@ -238,8 +235,6 @@ function renderInside(m) {
   if (thumbs) matrixRow(emb, "E, the LSTM's table", "8,000 tokens × 256", thumbs.E.lstm, I.tokenId);
   stripRow(emb, "LSTM embedding", `row ${I.tokenId} of E, ${d}`, I.lstmEmbedding);
   listNeighbours("nn-cnn", I.neighbours.cnn); listNeighbours("nn-lstm", I.neighbours.lstm);
-  const top = (model, name) => `${name}: z · E[${JSON.stringify(model.top[0].text)}] is the largest of the 8,000 dot products, so ${JSON.stringify(model.top[0].text)} gets ${(100 * model.top[0].prob).toFixed(1)} %`;
-  $("logit-note").textContent = `For both models the 8,000 logits are the dot products of z with the 8,000 embedding vectors (the same table used at the input), and the softmax turns them into the distributions shown at the top. ${top(m.cnn, "CNN")}; ${top(m.lstm, "LSTM")}.`;
 }
 
 // ---------------------------------------------------------------- embedding maps
@@ -347,6 +342,11 @@ function renderCNNFlow(m) {
   for (let r = 0; r <= L; r++) {
     const g = part(r === 0 ? "emb" : `layer${r}`);
     g.append("text").attr("class", "rowlab").attr("x", left - 8).attr("y", rowY(r) + cellH / 2 + 4).attr("text-anchor", "end").text(labels[r] + (r === 0 ? " (256)" : ""));
+    if (r > 0) {                                                                    // how much the layer writes: its gate, averaged over the coordinates and the text
+      const gm = m.cnn.gateMeans[r - 1], avg = gm.reduce((a, b) => a + b, 0) / gm.length;
+      g.append("text").attr("class", "sublab").attr("x", left - 8).attr("y", rowY(r) + cellH + 11).attr("text-anchor", "end").text(`gate σ(g) ${avg.toFixed(2)} on average`)
+        .append("title").text(`average of σ(g) over the ${d} coordinates and the ${m.T} tokens: the share of u this layer writes into the stream`);
+    }
     for (let t = c0; t < p0; t++) {                                                 // the two real tokens before the window: their actual values, dimmed
       const vec = rowOf(streams[r], d, t), cg = g.append("g").attr("class", "cell ctx").attr("transform", `translate(${x(t)},${rowY(r)})`);
       cg.append("image").attr("href", rasterURL(vec)).attr("width", cellW).attr("height", cellH).attr("preserveAspectRatio", "none").attr("opacity", .45);

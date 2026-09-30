@@ -43,10 +43,6 @@
     <h3>Which of these tokens it actually uses</h3>
     <p class="explain">Erase one token of the window (replace its embedding by zeros) and measure how much the prediction changes, in bits. Dark: the prediction depends on that token. Hover for the value.</p>
     <div id="cnn-influence" class="strip"></div>
-    <h3>How much each layer writes</h3>
-    <p class="explain">Each layer adds <em>u ⊙ σ(g)</em> to its input. The map shows the average gate σ(g) at every position: dark means the layer is writing a lot there.</p>
-    <canvas id="cnn-gates" class="heatmap"></canvas>
-    <div class="axis-note" id="cnn-gates-note"></div>
   </div>
 
   <div class="panel">
@@ -122,8 +118,6 @@
   <h3>3. The LSTM's memory over the whole text</h3>
   <p class="explain">The twelve memory slots of layer 2 with the largest values at the selected token, followed across the whole text. A flat line is a slot holding on to something; a jump is a write; a decay towards zero is the forget gate at work.</p>
   <svg id="memory-traj"></svg>
-  <h3>4. From <em>z</em> to the distribution</h3>
-  <p class="explain" id="logit-note"></p>
 </section>
 
 <footer>
